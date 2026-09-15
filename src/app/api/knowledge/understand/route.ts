@@ -116,12 +116,34 @@ export async function POST(request: Request) {
      * question_type = exact_lookup
      */
 
-    const deterministicIsStrong =
+    console.log("========== PROCEDURE DETERMINISTIC DEBUG ==========");
+console.log({
+  question,
+  deterministic,
+  entity: deterministic.entity,
+  intent: deterministic.intent,
+  field: deterministic.requested_field,
+  type: deterministic.question_type,
+  confidence: deterministic.confidence,
+});
+
+   const deterministicIsStrong =
   deterministic.intent !== "unknown" &&
-  deterministic.entity !== null &&
   (
-    deterministic.requested_field !== "unknown" ||
-    deterministic.intent === "transaction_lookup"
+    (
+      deterministic.entity !== null &&
+      (
+        deterministic.requested_field !== "unknown" ||
+        deterministic.intent === "transaction_lookup" ||
+        deterministic.intent === "document_lookup" ||
+        deterministic.intent === "policy_lookup" ||
+        deterministic.intent === "procedure_lookup" ||
+        deterministic.intent === "decision_lookup" ||
+        deterministic.intent === "project_lookup" ||
+        deterministic.intent === "financial_lookup"
+      )
+    ) ||
+    deterministic.intent === "general_knowledge"
   );
 
         console.log(

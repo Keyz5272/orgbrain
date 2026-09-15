@@ -37,10 +37,13 @@ export function cleanEntity(value: string): string {
 export function cleanDomainEntity(value: string): string {
   return value
     .replace(
-      /\b(transaction|transactions|transaction\s+details|transaction\s+record|transaction\s+information|payment|payments|payment\s+details|payment\s+record|payment\s+information)\b/gi,
+      /\b(transaction|transactions|transaction\s+details|transaction\s+record|transaction\s+records|transaction\s+information|payment|payments|payment\s+details|payment\s+record|payment\s+records|payment\s+information)\b/gi,
       " "
     )
-    .replace(/\b(record|details|information)\b/gi, " ")
+    .replace(
+      /\b(document|documents|document\s+details|document\s+record|document\s+records|document\s+information|file|files|file\s+details|file\s+record|file\s+records|file\s+information|record|records|details|information)\b/gi,
+      " "
+    )
     .replace(/\s+/g, " ")
     .trim();
 }

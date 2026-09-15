@@ -124,11 +124,12 @@ export const POLICY_TERMS = [
 
 export const PROCEDURE_TERMS = [
   "procedure",
+  "procedures",
   "process",
+  "processes",
   "steps",
   "workflow",
-  "how do i",
-  "how to",
+  "workflows",
   "instructions",
 ];
 
@@ -144,10 +145,13 @@ export const DOCUMENT_TERMS = [
 
 export const DECISION_TERMS = [
   "decision",
+  "decisions",
   "decided",
-  "approved",
   "approval",
+  "approvals",
+  "approved",
   "resolution",
+  "resolutions",
 ];
 
 export const PROJECT_TERMS = [
@@ -206,11 +210,38 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   ],
 
   date: [
-    "date",
-    "when",
-    "day",
-    "time",
+  "date",
+  "when",
+  "day",
+  "time",
+],
+
+policy: [
+  "policy",
+  "policies",
+],
+
+procedure: [
+    "procedure",
+    "procedures",
+    "process",
+    "processes",
+    "steps",
+    "workflow",
+    "workflows",
+    "instructions",
   ],
+
+  decision: [
+  "decision",
+  "decisions",
+  "decided",
+  "approval",
+  "approvals",
+  "approved",
+  "resolution",
+  "resolutions",
+],
 };
 
 export const INTENT_ALIASES: Record<string, string[]> = {
@@ -238,3 +269,28 @@ export const INTENT_ALIASES: Record<string, string[]> = {
 
   project_lookup: PROJECT_TERMS,
 };
+
+export const GENERAL_ORGANIZATION_TERMS = [
+  "organization",
+  "organisation",
+  "company",
+  "our organization",
+  "our organisation",
+  "our company",
+  "organizational information",
+  "organisation information",
+  "company information",
+  "organizational knowledge",
+  "organisation knowledge",
+  "company knowledge",
+  "organizational overview",
+  "organisation overview",
+  "company overview",
+  "what do we know",
+  "what information do we have",
+  "what knowledge do we have",
+  "what information is available",
+  "what knowledge is available",
+  "what information is stored",
+  "what is stored",
+];
