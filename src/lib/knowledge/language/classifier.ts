@@ -503,13 +503,17 @@ function detectQuestionType(
   // EXACT DOMAIN LOOKUPS
   // ============================================================
 
-  if (
+    if (
+  intent === "account_lookup" ||
+  intent === "customer_lookup" ||
+  intent === "employee_lookup" ||
   intent === "transaction_lookup" ||
   intent === "document_lookup" ||
   intent === "policy_lookup" ||
   intent === "procedure_lookup" ||
   intent === "decision_lookup" ||
-  intent === "project_lookup"
+  intent === "project_lookup" ||
+  intent === "financial_lookup"
 ) {
   return "exact_lookup";
 }
@@ -518,9 +522,21 @@ function detectQuestionType(
   // FIELD-BASED EXACT LOOKUP
   // ============================================================
 
-  if (
-    field !== "unknown" &&
-    intent !== "unknown"
+    if (
+    intent !== "unknown" &&
+    (
+      field !== "unknown" ||
+      intent === "account_lookup" ||
+      intent === "customer_lookup" ||
+      intent === "employee_lookup" ||
+      intent === "transaction_lookup" ||
+      intent === "document_lookup" ||
+      intent === "policy_lookup" ||
+      intent === "procedure_lookup" ||
+      intent === "decision_lookup" ||
+      intent === "project_lookup" ||
+      intent === "financial_lookup"
+    )
   ) {
     return "exact_lookup";
   }
@@ -2325,6 +2341,191 @@ if (field === "employee_name") {
       ) {
         return normalizeEntity(entity);
       }
+    }
+  }
+}
+
+
+// ==========================================================
+// COMPLEX ACCOUNT / ENTITY EXTRACTION
+// ==========================================================
+//
+// Handles natural account questions such as:
+//
+// Find Josephine Osae's savings account
+// Show me the account belonging to Josephine Osae
+// Get the account details for Josephine Osae
+// What account does Josephine Osae have?
+// Show me the account details for 1011000001126
+// Find the account with number 1011000001126
+// Find the transaction records for account 1011000001126
+// Show me the payment information for account 1011000001126
+// Find the savings deposit belonging to Josephine Osae
+// I need the account information belonging to Josephine Osae
+// Please find the account registered under Josephine Osae
+// Tell me which account belongs to Josephine Osae
+// Find the account record associated with 1011000001126
+// Show me all available information for account 1011000001126
+// ==========================================================
+
+if (intent === "account_lookup") {
+
+  let match: RegExpMatchArray | null = null;
+
+  // --------------------------------------------------------
+  // 1. ACCOUNT + NUMBER + NUMERIC IDENTIFIER
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount\s+(?:with\s+number|number|no\.?|#)\s+([0-9]{4,})\b/i
+  );
+
+  if (match?.[1]) {
+    return normalizeEntity(match[1]);
+  }
+
+  // --------------------------------------------------------
+  // 2. ACCOUNT + NUMERIC IDENTIFIER
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount\b.*?\b([0-9]{6,})\b/i
+  );
+
+  if (match?.[1]) {
+    return normalizeEntity(match[1]);
+  }
+
+  // --------------------------------------------------------
+  // 3. ACCOUNT BELONGING TO ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount(?:\s+(?:record|details|information))?\s+belonging\s+to\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 4. ACCOUNT REGISTERED UNDER ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount(?:\s+(?:record|details|information))?\s+registered\s+under\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 5. ACCOUNT ASSOCIATED WITH ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount(?:\s+(?:record|details|information))?\s+associated\s+with\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 6. ACCOUNT DETAILS / INFORMATION FOR ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount(?:\s+(?:details|information|record))?\s+for\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 7. ENTITY'S SAVINGS ACCOUNT
+  // --------------------------------------------------------
+  match = value.match(
+    /^(.+?)['’]s\s+(?:savings\s+)?account$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 8. ENTITY'S ACCOUNT DETAILS / INFORMATION
+  // --------------------------------------------------------
+  match = value.match(
+    /^(.+?)['’]s\s+account\s+(?:details|information|record)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 9. ACCOUNT BELONGS TO ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\baccount\s+belongs?\s+to\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 10. WHICH ACCOUNT DOES ENTITY HAVE?
+  // --------------------------------------------------------
+  match = value.match(
+    /^what\s+account\s+does\s+(.+?)\s+have$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
+    }
+  }
+
+  // --------------------------------------------------------
+  // 11. SAVINGS DEPOSIT BELONGING TO ENTITY
+  // --------------------------------------------------------
+  match = value.match(
+    /\bsavings\s+deposit\s+belonging\s+to\s+(.+?)$/i
+  );
+
+  if (match?.[1]) {
+    const entity = cleanExtractedEntity(match[1]);
+
+    if (entity && isValidEntity(entity)) {
+      return normalizeEntity(entity);
     }
   }
 }

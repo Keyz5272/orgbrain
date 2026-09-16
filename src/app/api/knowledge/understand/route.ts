@@ -127,13 +127,19 @@ console.log({
   confidence: deterministic.confidence,
 });
 
-   const deterministicIsStrong =
+  const deterministicIsStrong =
   deterministic.intent !== "unknown" &&
   (
+    deterministic.intent === "general_knowledge" ||
+
     (
       deterministic.entity !== null &&
       (
         deterministic.requested_field !== "unknown" ||
+
+        deterministic.intent === "account_lookup" ||
+        deterministic.intent === "customer_lookup" ||
+        deterministic.intent === "employee_lookup" ||
         deterministic.intent === "transaction_lookup" ||
         deterministic.intent === "document_lookup" ||
         deterministic.intent === "policy_lookup" ||
@@ -142,8 +148,7 @@ console.log({
         deterministic.intent === "project_lookup" ||
         deterministic.intent === "financial_lookup"
       )
-    ) ||
-    deterministic.intent === "general_knowledge"
+    )
   );
 
         console.log(

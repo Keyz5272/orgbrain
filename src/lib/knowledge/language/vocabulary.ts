@@ -34,6 +34,8 @@ export const ACCOUNT_TERMS = [
   "acct",
   "acct no",
   "acct number",
+  "savings account",
+  "savings deposit",
 ];
 
 export const ACCOUNT_NUMBER_TERMS = [

@@ -20,14 +20,14 @@ export default function Home() {
 
         <div className="mt-10 flex gap-4">
           <a
-            href="/signup"
+            href="/auth"
             className="rounded-lg bg-white px-6 py-3 font-semibold text-slate-950 transition hover:bg-slate-200"
           >
             Get Started
           </a>
 
           <a
-            href="/signup"
+            href="/auth"
             className="rounded-lg border border-slate-700 px-6 py-3 font-semibold text-white transition hover:bg-slate-900"
           >
             Sign In

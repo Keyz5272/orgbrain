@@ -1,0 +1,11 @@
+[33mcommit c1d2ffa2a660b8f62530f030e35cd3fcda8aa596[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Seth Okai <okaiseth@gmail.com>
+Date:   Tue Sep 15 00:08:30 2026 +0000
+
+    language update
+
+ src/app/api/knowledge/understand/route.ts |   30 [32m+[m[31m-[m
+ src/lib/knowledge/language/classifier.ts  | 1503 [32m++++++++++++++++++++++++++[m[31m---[m
+ src/lib/knowledge/language/normalize.ts   |    7 [32m+[m[31m-[m
+ src/lib/knowledge/language/vocabulary.ts  |   72 [32m+[m[31m-[m
+ 4 files changed, 1473 insertions(+), 139 deletions(-)
