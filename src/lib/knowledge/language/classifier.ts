@@ -84,6 +84,7 @@ export interface DateFilter {
 
 export interface LanguageUnderstanding {
   entity: string | null;
+  
   intent: Intent;
   requested_field: RequestedField;
   search_terms: string[];
@@ -274,6 +275,41 @@ function detectIntent(
   ) {
     return "transaction_lookup";
   }
+  
+
+    // ==========================================================
+  // MULTI-ENTITY ACCOUNT / RECORD LOOKUPS
+  // ==========================================================
+
+  // Account questions using plural "accounts"
+  if (
+    containsAny(text, [
+      "accounts",
+      "account details",
+      "account information",
+      "account records",
+      "savings accounts",
+      "savings account details",
+    ])
+  ) {
+    return "account_lookup";
+  }
+
+  // General record / information questions involving entities
+  if (
+    containsAny(text, [
+      "records",
+      "record",
+      "information about",
+      "information for",
+      "details about",
+      "details for",
+    ]) &&
+    /\band\b/i.test(text)
+  ) {
+    return "general_knowledge";
+  }
+
 
   // ==========================================================
   // POLICY
@@ -300,14 +336,37 @@ function detectIntent(
   }
 
   // ==========================================================
+// DOCUMENT + ENTITY / DEPARTMENT QUESTIONS
+// ==========================================================
+
+if (
+  containsAny(text, [
+    "document",
+    "documents",
+    "file",
+    "files",
+    "report",
+    "reports",
+  ]) &&
+  (
+    /\babout\b/i.test(text) ||
+    /\bfor\b/i.test(text) ||
+    /\brelated\s+to\b/i.test(text)
+  )
+) {
+  return "document_lookup";
+}
+
+  // ==========================================================
   // EXPLICIT PROJECT ENTITY QUESTIONS
   // ==========================================================
 
   if (
-    /\b(?:on|about|for)\s+.+\s+project\b/i.test(text)
-  ) {
-    return "project_lookup";
-  }
+  /\b(?:on|about|for)\s+.+\s+project\b/i.test(text) ||
+  /\bprojects?\s+(?:involving|related\s+to|associated\s+with|concerning)\b/i.test(text)
+) {
+  return "project_lookup";
+}
 
   // ==========================================================
   // GENERAL ORGANIZATIONAL KNOWLEDGE
@@ -3572,6 +3631,23 @@ function buildSearchTerms(
       terms.filter(Boolean)
     ),
   ];
+}
+
+function hasMultipleEntities(text: string): boolean {
+  const normalized = normalizeText(text);
+
+  // Multiple account numbers
+  const accountNumbers = normalized.match(/\b\d{6,}\b/g);
+  if (accountNumbers && accountNumbers.length >= 2) {
+    return true;
+  }
+
+  // Multiple entities joined by "and"
+  if (/\b.+\s+and\s+.+\b/i.test(normalized)) {
+    return true;
+  }
+
+  return false;
 }
 
 // ============================================================

@@ -28,13 +28,16 @@ export const LOOKUP_VERBS = [
 
 export const ACCOUNT_TERMS = [
   "account",
+  "accounts",
   "account number",
+  "account numbers",
   "account no",
   "account #",
   "acct",
   "acct no",
   "acct number",
   "savings account",
+  "savings accounts",
   "savings deposit",
 ];
 
@@ -143,6 +146,14 @@ export const DOCUMENT_TERMS = [
   "spreadsheet",
   "pdf",
   "presentation",
+];
+
+export const RECORD_TERMS = [
+  "record",
+  "records",
+  "information",
+  "details",
+  "data",
 ];
 
 export const DECISION_TERMS = [

@@ -150,6 +150,21 @@ console.log({
           deterministic.intent === "project_lookup" ||
           deterministic.intent === "financial_lookup"
         )
+      ) ||
+
+      (
+        deterministic.entity !== null &&
+        deterministic.question_type === "list"
+      ) ||
+
+      (
+        deterministic.intent === "document_lookup" &&
+        deterministic.question_type === "list"
+      ) ||
+
+      (
+        deterministic.intent === "project_lookup" &&
+        deterministic.question_type === "list"
       )
     )
   );
@@ -159,6 +174,18 @@ console.log({
   deterministicIsStrong
 );
 console.log("==========================================");
+
+console.log("========== FINAL DETERMINISTIC CHECK ==========");
+console.log({
+  question,
+  intent: deterministic.intent,
+  entity: deterministic.entity,
+  field: deterministic.requested_field,
+  questionType: deterministic.question_type,
+  confidence: deterministic.confidence,
+  method: deterministic.method,
+  deterministicIsStrong,
+});
 
     if (deterministicIsStrong) {
       return NextResponse.json({
