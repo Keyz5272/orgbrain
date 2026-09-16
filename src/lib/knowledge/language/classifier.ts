@@ -27,6 +27,7 @@ export type Intent =
   | "transaction_lookup"
   | "decision_lookup"
   | "project_lookup"
+  | "date_filter"
   | "general_knowledge"
   | "unknown";
 
@@ -56,12 +57,38 @@ export type QuestionType =
   | "general_question"
   | "unknown";
 
+export type DateFilterType =
+  | "exact_date"
+  | "month"
+  | "year"
+  | "annual"
+  | "quarter"
+  | "today"
+  | "yesterday"
+  | "this_week"
+  | "last_week"
+  | "this_month"
+  | "last_month"
+  | "this_quarter"
+  | "last_quarter"
+  | "this_year"
+  | "last_year"
+  | "past_days"
+  | "date_filter"
+  | "unknown";
+
+export interface DateFilter {
+  type: DateFilterType;
+  value: string | null;
+}
+
 export interface LanguageUnderstanding {
   entity: string | null;
   intent: Intent;
   requested_field: RequestedField;
   search_terms: string[];
   question_type: QuestionType;
+  date_filter: DateFilter | null;
   confidence: number;
   method: "deterministic" | "llm";
 }
@@ -71,10 +98,7 @@ export interface LanguageUnderstanding {
 // ============================================================
 
 function escapeRegex(value: string): string {
-  return value.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&"
-  );
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function containsAny(
@@ -104,18 +128,11 @@ function containsAny(
 // ============================================================
 
 function detectField(text: string): RequestedField {
+
   // ==========================================================
   // 1. UNCLEARED BALANCE
   // ==========================================================
-  /*
-   * Must be checked BEFORE "balance".
-   *
-   * Examples:
-   * uncleared balance
-   * uncleared amount
-   * uncleared funds
-   * uncleared
-   */
+
   if (
     /\buncleared\s+(?:balance|amount|funds)\b/i.test(text) ||
     /\buncleared\b/i.test(text)
@@ -126,16 +143,7 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 2. OPEN DATE
   // ==========================================================
-  /*
-   * Examples:
-   * open date
-   * opening date
-   * date opened
-   * when opened
-   * account opened
-   * when was the account opened
-   * when did Seth open the account
-   */
+
   if (
     /\bopen\s+date\b/i.test(text) ||
     /\bopening\s+date\b/i.test(text) ||
@@ -152,6 +160,7 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 3. ACCOUNT NUMBER
   // ==========================================================
+
   if (
     /\baccount\s+(?:number|no|#)\b/i.test(text) ||
     /\bacct\s+(?:number|no)\b/i.test(text) ||
@@ -163,10 +172,7 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 4. AVAILABLE BALANCE
   // ==========================================================
-  /*
-   * This is deliberately checked AFTER
-   * uncleared balance.
-   */
+
   if (
     /\bavailable\s+balance\b/i.test(text) ||
     /\bcurrent\s+balance\b/i.test(text) ||
@@ -181,18 +187,7 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 5. CONTACT / PHONE NUMBER
   // ==========================================================
-  /*
-   * Examples:
-   *
-   * contact
-   * contact number
-   * phone
-   * phone number
-   * telephone
-   * telephone number
-   * mobile
-   * mobile number
-   */
+
   if (
     /\bcontact\s+number\b/i.test(text) ||
     /\bphone\s+number\b/i.test(text) ||
@@ -209,21 +204,7 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 6. ACCOUNT NAME / ACCOUNT HOLDER
   // ==========================================================
-  /*
-   * Natural account-name questions.
-   *
-   * Examples:
-   *
-   * What name is on Seth Olai's account?
-   * What is the name on Seth Olai's account?
-   * Show me the name on Seth Olai's account
-   * Tell me the name on Seth Olai account
-   * Give me the name on Seth Olai's account
-   * Whose name is on Seth Olai's account?
-   * Who owns the account for Seth Olai?
-   * Who is named on Seth Olai's account?
-   * Account holder name for Seth Olai
-   */
+
   if (
     /\bname\s+on\b.*\baccount\b/i.test(text) ||
     /\bwhat\s+name\s+is\s+on\b.*\baccount\b/i.test(text) ||
@@ -238,11 +219,9 @@ function detectField(text: string): RequestedField {
   // ==========================================================
   // 7. OTHER KNOWN FIELDS
   // ==========================================================
+
   const fields = Object.entries(FIELD_ALIASES);
 
-  /*
-   * Check longer phrases first.
-   */
   const sorted = fields.sort(
     ([, aliasesA], [, aliasesB]) =>
       Math.max(
@@ -261,6 +240,7 @@ function detectField(text: string): RequestedField {
 
   return "unknown";
 }
+
 // ============================================================
 // INTENT DETECTION
 // ============================================================
@@ -270,9 +250,10 @@ function detectIntent(
   field: RequestedField
 ): Intent {
 
-  /*
-   * Account fields have priority.
-   */
+  // ==========================================================
+  // ACCOUNT FIELDS HAVE PRIORITY
+  // ==========================================================
+
   if (
     field === "account_number" ||
     field === "account_name" ||
@@ -284,97 +265,113 @@ function detectIntent(
     return "account_lookup";
   }
 
+  // ==========================================================
+  // TRANSACTION / PAYMENT PRIORITY
+  // ==========================================================
+
+  if (
+    containsAny(text, INTENT_ALIASES.transaction_lookup)
+  ) {
+    return "transaction_lookup";
+  }
+
+  // ==========================================================
+  // POLICY
+  // ==========================================================
+
   if (field === "policy") {
     return "policy_lookup";
   }
+
+  // ==========================================================
+  // PROCEDURE
+  // ==========================================================
 
   if (field === "procedure") {
     return "procedure_lookup";
   }
 
+  // ==========================================================
+  // DECISION
+  // ==========================================================
+
   if (field === "decision") {
     return "decision_lookup";
   }
 
-  /*
-   * General organizational knowledge.
-   *
-   * This must come before generic intent vocabularies
-   * so broad organizational questions do not fall into
-   * employee/project/document/etc. lookup accidentally.
-   */
+  // ==========================================================
+  // EXPLICIT PROJECT ENTITY QUESTIONS
+  // ==========================================================
 
-  /*
- * Explicit project entity questions.
- *
- * Examples:
- * - What information do we have on Leave Project?
- * - What information do we have about Leave Project?
- * - What information do we have for Leave Project?
- *
- * A named "... Project" phrase should remain a project lookup,
- * even when the question uses broad "information do we have"
- * wording.
- */
-if (
-  /\b(?:on|about|for)\s+.+\s+project\b/i.test(text)
-) {
-  return "project_lookup";
-} 
+  if (
+    /\b(?:on|about|for)\s+.+\s+project\b/i.test(text)
+  ) {
+    return "project_lookup";
+  }
+
+  // ==========================================================
+  // GENERAL ORGANIZATIONAL KNOWLEDGE
+  // ==========================================================
+
   const generalOrganizationTerms = [
-  // General knowledge
-  "what do we know",
-  "tell me about the organization",
-  "tell me about our organization",
-  "tell me about the company",
-  "tell me about our company",
-  "tell me what is known",
-  "what do we currently know",
-  "what information do we have",
-  "what information is available",
-  "what information has been captured",
-  "what knowledge do we have",
-  "what knowledge is available",
-  "what knowledge has been captured",
-  "what information is stored",
-  "what organizational information do we have",
-  "what company information is available",
-  "what company information do we have",
-  "what organizational knowledge is available",
-  "what company knowledge is available",
 
-  // OrgBrain-specific
-  "what information is stored in orgbrain",
-  "what knowledge is available in orgbrain",
-  "what can orgbrain tell me",
-  "what can orgbrain tell me about",
-  "what can i learn about the organization from orgbrain",
-  "what does orgbrain know",
-  "what does orgbrain know about the organization",
-  "what does orgbrain know about our organization",
-  "what does orgbrain know about the company",
-  "what knowledge is in orgbrain",
-  "what information is in orgbrain",
+    // General knowledge
 
-  // Organizational overview
-  "organizational information",
-  "organisation information",
-  "organizational knowledge",
-  "organisation knowledge",
-  "company information",
-  "company knowledge",
-  "organizational overview",
-  "organisation overview",
-  "company overview",
-  "general overview",
-  "general summary",
+    "what do we know",
+    "tell me about the organization",
+    "tell me about our organization",
+    "tell me about the company",
+    "tell me about our company",
+    "tell me what is known",
+    "what do we currently know",
+    "what information do we have",
+    "what information is available",
+    "what information has been captured",
+    "what knowledge do we have",
+    "what knowledge is available",
+    "what knowledge has been captured",
+    "what information is stored",
+    "what organizational information do we have",
+    "what company information is available",
+    "what company information do we have",
+    "what organizational knowledge is available",
+    "what company knowledge is available",
 
-  // Captured organizational knowledge
-  "knowledge captured about the organization",
-  "knowledge captured about our company",
-  "information captured about the organization",
-  "information captured about our company",
-];
+    // OrgBrain-specific
+
+    "what information is stored in orgbrain",
+    "what knowledge is available in orgbrain",
+    "what can orgbrain tell me",
+    "what can orgbrain tell me about",
+    "what can i learn about the organization from orgbrain",
+    "what does orgbrain know",
+    "what does orgbrain know about the organization",
+    "what does orgbrain know about our organization",
+    "what does orgbrain know about the company",
+    "what knowledge is in orgbrain",
+    "what information is in orgbrain",
+
+    // Organizational overview
+
+    "organizational information",
+    "organisation information",
+    "organizational knowledge",
+    "organisation knowledge",
+    "company information",
+    "company knowledge",
+    "organizational overview",
+    "organisation overview",
+    "company overview",
+    "general overview",
+    "general summary",
+
+    // Captured organizational knowledge
+
+    "knowledge captured about the organization",
+    "knowledge captured about our company",
+    "information captured about the organization",
+    "information captured about our company",
+  ];
 
   if (
     containsAny(
@@ -385,9 +382,10 @@ if (
     return "general_knowledge";
   }
 
-  /*
-   * Broad organizational list/overview questions.
-   */
+  // ==========================================================
+  // BROAD ORGANIZATIONAL LIST / OVERVIEW
+  // ==========================================================
+
   if (
     containsAny(text, [
       "departments",
@@ -411,10 +409,10 @@ if (
     return "general_knowledge";
   }
 
-  /*
-   * Financial questions have priority over
-   * generic document terminology.
-   */
+  // ==========================================================
+  // FINANCIAL QUESTIONS
+  // ==========================================================
+
   const financialTerms = [
     "finance",
     "financial",
@@ -452,9 +450,10 @@ if (
     return "financial_lookup";
   }
 
-  /*
-   * Other known intent vocabularies.
-   */
+  // ==========================================================
+  // OTHER KNOWN INTENT VOCABULARIES
+  // ==========================================================
+
   for (
     const [intent, aliases]
     of Object.entries(
@@ -473,6 +472,7 @@ if (
 
   return "unknown";
 }
+
 // ============================================================
 // QUESTION TYPE
 // ============================================================
@@ -483,46 +483,60 @@ function detectQuestionType(
   field: RequestedField
 ): QuestionType {
 
+  // ==========================================================
+  // DATE FILTER
+  // ==========================================================
+
+  if (intent === "date_filter") {
+    return "exact_lookup";
+  }
+
+  // ==========================================================
+  // GENERAL KNOWLEDGE
+  // ==========================================================
 
   if (intent === "general_knowledge") {
-  if (
-    /\b(summary|summarize|summarise|overview|brief|briefing)\b/i.test(text)
-  ) {
-    return "summary";
+
+    if (
+      /\b(summary|summarize|summarise|overview|brief|briefing)\b/i.test(text)
+    ) {
+      return "summary";
+    }
+
+    if (
+      /\b(list|all|which|what are)\b/i.test(text)
+    ) {
+      return "list";
+    }
+
+    return "general_question";
   }
 
-  if (
-    /\b(list|all|which|what are)\b/i.test(text)
-  ) {
-    return "list";
-  }
-
-  return "general_question";
-}
-  // ============================================================
+  // ==========================================================
   // EXACT DOMAIN LOOKUPS
-  // ============================================================
+  // ==========================================================
 
-    if (
-  intent === "account_lookup" ||
-  intent === "customer_lookup" ||
-  intent === "employee_lookup" ||
-  intent === "transaction_lookup" ||
-  intent === "document_lookup" ||
-  intent === "policy_lookup" ||
-  intent === "procedure_lookup" ||
-  intent === "decision_lookup" ||
-  intent === "project_lookup" ||
-  intent === "financial_lookup"
-) {
-  return "exact_lookup";
-}
+  if (
+    
+    intent === "account_lookup" ||
+    intent === "customer_lookup" ||
+    intent === "employee_lookup" ||
+    intent === "transaction_lookup" ||
+    intent === "document_lookup" ||
+    intent === "policy_lookup" ||
+    intent === "procedure_lookup" ||
+    intent === "decision_lookup" ||
+    intent === "project_lookup" ||
+    intent === "financial_lookup" 
+  ) {
+    return "exact_lookup";
+  }
 
-  // ============================================================
+  // ==========================================================
   // FIELD-BASED EXACT LOOKUP
-  // ============================================================
+  // ==========================================================
 
-    if (
+  if (
     intent !== "unknown" &&
     (
       field !== "unknown" ||
@@ -541,9 +555,9 @@ function detectQuestionType(
     return "exact_lookup";
   }
 
-  // ============================================================
+  // ==========================================================
   // LIST
-  // ============================================================
+  // ==========================================================
 
   if (
     /\b(list|all|which|what are|show all|give me all)\b/i.test(text)
@@ -551,9 +565,9 @@ function detectQuestionType(
     return "list";
   }
 
-  // ============================================================
+  // ==========================================================
   // COMPARISON
-  // ============================================================
+  // ==========================================================
 
   if (
     /\b(compare|comparison|difference|versus|vs|against)\b/i.test(text)
@@ -561,9 +575,9 @@ function detectQuestionType(
     return "comparison";
   }
 
-  // ============================================================
+  // ==========================================================
   // EXPLANATION
-  // ============================================================
+  // ==========================================================
 
   if (
     /\b(why|explain|explanation|meaning|how does|how did|reason)\b/i.test(text)
@@ -571,9 +585,9 @@ function detectQuestionType(
     return "explanation";
   }
 
-  // ============================================================
+  // ==========================================================
   // SUMMARY
-  // ============================================================
+  // ==========================================================
 
   if (
     /\b(summarize|summarise|summary|overview|brief|briefing)\b/i.test(text)
@@ -581,9 +595,9 @@ function detectQuestionType(
     return "summary";
   }
 
-  // ============================================================
+  // ==========================================================
   // GENERAL QUESTION
-  // ============================================================
+  // ==========================================================
 
   if (
     /\b(what|how|why|when|where|who|which|can|could|does|do|is|are)\b/i.test(text)
@@ -594,7 +608,6 @@ function detectQuestionType(
   return "unknown";
 }
 
-
 // ============================================================
 // REMOVE LOOKUP VERB
 // ============================================================
@@ -602,12 +615,10 @@ function detectQuestionType(
 function removeLeadingLookupVerb(
   question: string
 ): string {
+
   let value =
     question.trim();
 
-  /*
-   * Compound lookup phrases first.
-   */
   const compoundVerbPattern =
     /^(show\s+me|give\s+me|tell\s+me|provide\s+me|find\s+me|get\s+me)\s+/i;
 
@@ -617,9 +628,6 @@ function removeLeadingLookupVerb(
       ""
     );
 
-  /*
-   * Single lookup verbs.
-   */
   const verbPattern =
     /^(find|fetch|get|show|give|retrieve|lookup|look\s+up|provide|tell|check|search|locate|identify|display|return|bring|pull|obtain|access|view|see|know)\b\s*/i;
 
@@ -629,9 +637,6 @@ function removeLeadingLookupVerb(
       ""
     );
 
-  /*
-   * Remove polite prefixes.
-   */
   value =
     value.replace(
       /^(please|can you|could you|would you|will you)\s+/i,
@@ -654,6 +659,7 @@ function removeLeadingLookupVerb(
 function removeQuestionPrefix(
   question: string
 ): string {
+
   let value =
     question.trim();
 
@@ -673,6 +679,7 @@ function removeQuestionPrefix(
 function getFieldAliases(
   field: RequestedField
 ): string[] {
+
   const aliases =
     FIELD_ALIASES[field];
 
@@ -694,6 +701,7 @@ function removeFieldFromEnd(
   value: string,
   field: RequestedField
 ): string {
+
   let result =
     value.trim();
 
@@ -703,6 +711,7 @@ function removeFieldFromEnd(
   for (
     const alias of aliases
   ) {
+
     const normalizedAlias =
       normalizeText(alias);
 
@@ -742,6 +751,7 @@ function removeFieldFromBeginning(
   value: string,
   field: RequestedField
 ): string {
+
   let result =
     value.trim();
 
@@ -751,6 +761,7 @@ function removeFieldFromBeginning(
   for (
     const alias of aliases
   ) {
+
     const normalizedAlias =
       normalizeText(alias);
 
@@ -789,12 +800,10 @@ function removeFieldFromBeginning(
 function cleanExtractedEntity(
   value: string
 ): string {
+
   let result =
     value.trim();
 
-  /*
-   * Remove trailing punctuation.
-   */
   result =
     result
       .replace(
@@ -803,9 +812,6 @@ function cleanExtractedEntity(
       )
       .trim();
 
-  /*
-   * Remove trailing possessive.
-   */
   result =
     result
       .replace(
@@ -814,9 +820,6 @@ function cleanExtractedEntity(
       )
       .trim();
 
-  /*
-   * Remove common articles.
-   */
   result =
     result
       .replace(
@@ -835,6 +838,7 @@ function cleanExtractedEntity(
 function isValidEntity(
   value: string
 ): boolean {
+
   const normalized =
     normalizeEntity(value);
 
@@ -885,1245 +889,1829 @@ function isValidEntity(
 }
 
 // ============================================================
+// DATE FILTER DETECTION
+// ============================================================
+
+function detectDateFilter(
+  text: string
+): DateFilter | null {
+
+  const value =
+    normalizeText(text);
+
+  // ==========================================================
+  // EXACT ISO DATE
+  // Example: 2026-03-15
+  // ==========================================================
+
+  const isoDate =
+    value.match(
+      /\b(\d{4}-\d{2}-\d{2})\b/
+    );
+
+  if (isoDate?.[1]) {
+    return {
+      type: "exact_date",
+      value: isoDate[1],
+    };
+  }
+
+  // ==========================================================
+  // EXACT WRITTEN DATE
+  // Example: March 15, 2026
+  // ==========================================================
+
+  const writtenDate =
+    value.match(
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})\b/i
+    );
+
+  if (writtenDate?.[0]) {
+    return {
+      type: "exact_date",
+      value: writtenDate[0],
+    };
+  }
+
+  // ==========================================================
+  // NUMERIC DATE
+  // Example: 15/03/2026
+  // ==========================================================
+
+  const numericDate =
+    value.match(
+      /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/
+    );
+
+  if (numericDate?.[0]) {
+    return {
+      type: "exact_date",
+      value: numericDate[0],
+    };
+  }
+
+  // ==========================================================
+  // QUARTER + YEAR
+  //
+  // Q1 2026
+  // Q2 2026
+  // Q3 2026
+  // Q4 2026
+  // ==========================================================
+
+  const qNumber =
+    value.match(
+      /\bq([1-4])\s*(?:of\s+|[-/]?\s*)?(20\d{2})\b/i
+    );
+
+  if (
+    qNumber?.[1] &&
+    qNumber?.[2]
+  ) {
+    return {
+      type: "quarter",
+      value:
+        `Q${qNumber[1]} ${qNumber[2]}`,
+    };
+  }
+
+  // ==========================================================
+  // FIRST / SECOND / THIRD / FOURTH QUARTER + YEAR
+  // ==========================================================
+
+  const namedQuarter =
+    value.match(
+      /\b(first|second|third|fourth)\s+quarter(?:\s+of)?\s+(20\d{2})\b/i
+    );
+
+  if (
+    namedQuarter?.[1] &&
+    namedQuarter?.[2]
+  ) {
+
+    const quarterMap: Record<string, string> = {
+      first: "Q1",
+      second: "Q2",
+      third: "Q3",
+      fourth: "Q4",
+    };
+
+    return {
+      type: "quarter",
+      value:
+        `${quarterMap[namedQuarter[1].toLowerCase()]} ${namedQuarter[2]}`,
+    };
+  }
+
+  // ==========================================================
+  // THIS QUARTER
+  // ==========================================================
+
+  if (
+    /\bthis quarter\b/i.test(value)
+  ) {
+    return {
+      type: "this_quarter",
+      value: "this quarter",
+    };
+  }
+
+  // ==========================================================
+  // LAST QUARTER
+  // ==========================================================
+
+  if (
+    /\blast quarter\b/i.test(value)
+  ) {
+    return {
+      type: "last_quarter",
+      value: "last quarter",
+    };
+  }
+
+  // ==========================================================
+  // STANDALONE QUARTER
+  //
+  // Q1
+  // first quarter
+  // second quarter
+  // etc.
+  // ==========================================================
+
+  const standaloneQuarter =
+    value.match(
+      /\bq([1-4])\b/i
+    );
+
+  if (
+    standaloneQuarter?.[1]
+  ) {
+    return {
+      type: "quarter",
+      value:
+        `Q${standaloneQuarter[1]}`,
+    };
+  }
+
+  const standaloneNamedQuarter =
+    value.match(
+      /\b(first|second|third|fourth)\s+quarter\b/i
+    );
+
+  if (
+    standaloneNamedQuarter?.[1]
+  ) {
+
+    const quarterMap: Record<string, string> = {
+      first: "Q1",
+      second: "Q2",
+      third: "Q3",
+      fourth: "Q4",
+    };
+
+    return {
+      type: "quarter",
+      value:
+        quarterMap[
+          standaloneNamedQuarter[1].toLowerCase()
+        ],
+    };
+  }
+
+  // ==========================================================
+  // MONTH + YEAR
+  // Example: March 2026
+  // ==========================================================
+
+  const monthYear =
+    value.match(
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})\b/i
+    );
+
+  if (
+    monthYear?.[0]
+  ) {
+    return {
+      type: "month",
+      value: monthYear[0],
+    };
+  }
+
+  // ==========================================================
+  // ANNUAL / YEARLY + YEAR
+  //
+  // annual 2026
+  // annual report for 2026
+  // yearly 2026
+  // ==========================================================
+
+  const annualYear =
+    value.match(
+      /\b(?:annual|yearly|year-end|year end)\b.*?\b(20\d{2})\b/i
+    );
+
+  if (
+    annualYear?.[1]
+  ) {
+    return {
+      type: "annual",
+      value: annualYear[1],
+    };
+  }
+
+  // ==========================================================
+  // RELATIVE DATES
+  // ==========================================================
+
+  if (
+    /\btoday\b/i.test(value)
+  ) {
+    return {
+      type: "today",
+      value: "today",
+    };
+  }
+
+  if (
+    /\byesterday\b/i.test(value)
+  ) {
+    return {
+      type: "yesterday",
+      value: "yesterday",
+    };
+  }
+
+  if (
+    /\bthis week\b/i.test(value)
+  ) {
+    return {
+      type: "this_week",
+      value: "this week",
+    };
+  }
+
+  if (
+    /\blast week\b/i.test(value)
+  ) {
+    return {
+      type: "last_week",
+      value: "last week",
+    };
+  }
+
+  if (
+    /\bthis month\b/i.test(value)
+  ) {
+    return {
+      type: "this_month",
+      value: "this month",
+    };
+  }
+
+  if (
+    /\blast month\b/i.test(value)
+  ) {
+    return {
+      type: "last_month",
+      value: "last month",
+    };
+  }
+
+  if (
+    /\bthis year\b/i.test(value)
+  ) {
+    return {
+      type: "this_year",
+      value: "this year",
+    };
+  }
+
+  if (
+    /\blast year\b/i.test(value)
+  ) {
+    return {
+      type: "last_year",
+      value: "last year",
+    };
+  }
+
+  // ==========================================================
+  // PAST / LAST N DAYS
+  // ==========================================================
+
+  const pastDays =
+    value.match(
+      /\b(?:past|last)\s+(\d+)\s+days?\b/i
+    );
+
+  if (
+    pastDays?.[1]
+  ) {
+    return {
+      type: "past_days",
+      value: pastDays[1],
+    };
+  }
+
+  // ==========================================================
+  // YEAR
+  // Example: 2026
+  // ==========================================================
+
+  const year =
+    value.match(
+      /\b(20\d{2})\b/
+    );
+
+  if (
+    year?.[1]
+  ) {
+    return {
+      type: "year",
+      value: year[1],
+    };
+  }
+
+  return null;
+}
+
+// ============================================================
 // ENTITY EXTRACTION
 // ============================================================
+
 function extractEntity(
   originalQuestion: string,
   field: RequestedField,
   intent: Intent
 ): string | null {
 
-  let value = originalQuestion
-    .trim()
-    .replace(/\?+$/, "")
-    .trim();
+  let value =
+    originalQuestion
+      .trim()
+      .replace(/\?+$/, "")
+      .trim();
 
-    console.log("POLICY ENTITY DEBUG:", {
-  originalQuestion,
-  value,
-  intent,
-  field
-});
+  console.log(
+    "POLICY ENTITY DEBUG:",
+    {
+      originalQuestion,
+      value,
+      intent,
+      field,
+    }
+  );
 
-// ==========================================================
-// GENERAL ORGANIZATIONAL QUESTIONS WITHOUT AN ENTITY
-// ==========================================================
-
-if (intent === "general_knowledge") {
-
-  // ----------------------------------------------------------
-  // Exact known general-knowledge patterns
-  // ----------------------------------------------------------
-
-  const genericGeneralQuestionPatterns = [
-
-    // ORGANIZATION
-    /^what\s+do\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
-    /^tell\s+me\s+about\s+(?:the\s+)?organization$/i,
-    /^what\s+information\s+do\s+we\s+have\s+about\s+(?:the\s+)?organization$/i,
-    /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?company$/i,
-    /^tell\s+me\s+what\s+is\s+known\s+about\s+(?:the\s+)?organization$/i,
-    /^what\s+do\s+we\s+currently\s+know\s+about\s+(?:the\s+)?organization$/i,
-    /^what\s+information\s+has\s+been\s+captured\s+about\s+(?:the\s+)?organization$/i,
-
-    // COMPANY
-    /^what\s+do\s+we\s+know\s+about\s+our\s+company$/i,
-    /^what\s+information\s+do\s+we\s+have\s+about\s+our\s+company$/i,
-    /^what\s+company\s+information\s+is\s+available$/i,
-    /^what\s+company\s+knowledge\s+is\s+available$/i,
-    /^what\s+knowledge\s+has\s+been\s+captured\s+about\s+our\s+company$/i,
-
-    // ORGANIZATIONAL KNOWLEDGE
-    /^what\s+knowledge\s+is\s+available\s+in\s+(?:the\s+)?organization$/i,
-    /^what\s+organizational\s+information\s+do\s+we\s+have$/i,
-    /^what\s+organizational\s+knowledge\s+is\s+available$/i,
-    /^what\s+information\s+is\s+available\s+across\s+(?:the\s+)?organization$/i,
-
-    // ORGBRAIN
-    /^what\s+information\s+is\s+stored\s+in\s+orgbrain$/i,
-    /^what\s+knowledge\s+is\s+available\s+in\s+orgbrain$/i,
-    /^what\s+knowledge\s+is\s+in\s+orgbrain$/i,
-    /^what\s+information\s+is\s+in\s+orgbrain$/i,
-    /^what\s+does\s+orgbrain\s+know$/i,
-    /^what\s+does\s+orgbrain\s+know\s+about\s+(?:the\s+)?organization$/i,
-    /^what\s+does\s+orgbrain\s+know\s+about\s+our\s+organization$/i,
-    /^what\s+does\s+orgbrain\s+know\s+about\s+the\s+company$/i,
-    /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+(?:the\s+)?organization$/i,
-    /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+our\s+organization$/i,
-    /^what\s+can\s+i\s+learn\s+about\s+(?:the\s+)?organization\s+from\s+orgbrain$/i,
-
-    // OVERVIEW
-    /^give\s+me\s+an?\s+overview\s+of\s+(?:the\s+)?organization$/i,
-    /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+(?:the\s+)?organization$/i,
-    /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+our\s+company$/i,
-    /^give\s+me\s+an?\s+overview\s+of\s+the\s+knowledge\s+in\s+orgbrain$/i,
-
-    // SUMMARY
-    /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
-    /^give\s+me\s+a\s+summary\s+of\s+our\s+organizational\s+knowledge$/i,
-    /^give\s+me\s+a\s+general\s+summary\s+of\s+what\s+orgbrain\s+knows$/i,
-    /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know$/i,
-  ];
+  // ==========================================================
+  // DATE-ONLY QUESTIONS HAVE NO ENTITY
+  // ==========================================================
 
   if (
-    genericGeneralQuestionPatterns.some((pattern) =>
-      pattern.test(value)
-    )
+    intent === "date_filter"
   ) {
     return null;
   }
 
-
-  // ----------------------------------------------------------
-  // Structural protection for broad organization questions
-  //
-  // Prevent generic entity extraction from treating phrases
-  // such as:
-  //
-  // "what we know about the company"
-  // "overview of the organization"
-  // "summary of what we know about the organization"
-  // "overview of the knowledge in OrgBrain"
-  //
-  // as entities.
-  // ----------------------------------------------------------
-
-  const broadGeneralStructurePatterns = [
-
-    /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?(?:company|organization)$/i,
-
-    /^give\s+me\s+(?:an?\s+)?overview\s+of\s+(?:the\s+)?(?:company|organization)$/i,
-
-    /^give\s+me\s+(?:a\s+)?summary\s+of\s+what\s+we\s+know\s+about\s+(?:the\s+)?(?:company|organization)$/i,
-
-    /^give\s+me\s+(?:an?\s+)?overview\s+of\s+the\s+knowledge\s+in\s+orgbrain$/i,
-
-  ];
-
-  if (
-    broadGeneralStructurePatterns.some((pattern) =>
-      pattern.test(value)
-    )
-  ) {
-    return null;
-  }
-}
-  // ============================================================
-// POLICY ENTITY EXTRACTION
-// ============================================================
-
-if (intent === "policy_lookup") {
-
-  // ----------------------------------------------------------
-  // 1. TELL ME ABOUT ENTITY POLICY
-  // ----------------------------------------------------------
-
-  let match = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 2. POLICY RECORD FOR ENTITY POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+record\s+for\s+(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 3. POLICY INFORMATION FOR ENTITY POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^give\s+me\s+(?:the\s+)?policy\s+information\s+for\s+(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 4. POLICY FOR ENTITY POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+for\s+(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-// 5. TELL ME ENTITY POLICY DETAILS
-// Examples:
-// Tell me the Leave Policy details
-// Tell me the Leave Policy information
-// Tell me the Leave Policy record
-// ----------------------------------------------------------
-
-match = value.match(
-  /^tell\s+me\s+(?:the\s+)?(.+?)\s+policy\s+(?:details?|records?|information)$/i
-);
-
-if (match?.[1]) {
-  const entity = cleanExtractedEntity(match[1]);
-
-  if (entity && isValidEntity(entity)) {
-    return normalizeEntity(entity);
-  }
-}
-  // ----------------------------------------------------------
-  // 5. ENTITY + POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 6. I NEED / WANT ENTITY POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 7. WHAT POLICY INFORMATION DO WE HAVE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+policy\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 8. WHAT INFORMATION DO WE HAVE ON POLICY
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+policy$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-// ============================================================
-// PROCEDURE / PROCESS ENTITY EXTRACTION
-// ============================================================
-
-if (intent === "procedure_lookup") {
-
-  // ----------------------------------------------------------
-  // 1. TELL ME ABOUT ENTITY PROCEDURE
-  // ----------------------------------------------------------
-
-  let match = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 2. PROCEDURE RECORD FOR ENTITY PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+record\s+for\s+(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 3. PROCEDURE INFORMATION FOR ENTITY PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^give\s+me\s+(?:the\s+)?procedure\s+information\s+for\s+(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 4. PROCEDURE FOR ENTITY PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+for\s+(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 5. ENTITY + PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 6. TELL ME ENTITY PROCEDURE DETAILS
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^tell\s+me\s+(?:the\s+)?(.+?)\s+procedure\s+(?:details?|records?|information)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 7. I NEED / WANT ENTITY PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 8. WHAT PROCEDURE INFORMATION DO WE HAVE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+procedure\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 9. WHAT INFORMATION DO WE HAVE ON PROCEDURE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+procedure$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-
-// ============================================================
-// DECISION / APPROVAL ENTITY EXTRACTION
-// ============================================================
-
-if (intent === "decision_lookup") {
-
-  // ----------------------------------------------------------
-  // 1. TELL ME ABOUT ENTITY DECISION
-  // ----------------------------------------------------------
-
-  let match = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 2. DECISION RECORD FOR ENTITY DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+record\s+for\s+(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 3. DECISION INFORMATION FOR ENTITY DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^give\s+me\s+(?:the\s+)?decision\s+information\s+for\s+(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 4. DECISION FOR ENTITY DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+for\s+(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 5. ENTITY + DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 6. TELL ME ENTITY DECISION DETAILS
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^tell\s+me\s+(?:the\s+)?(.+?)\s+decision\s+(?:details?|records?|information)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 7. I NEED / WANT ENTITY DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 8. WHAT DECISION INFORMATION DO WE HAVE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+decision\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 9. WHAT INFORMATION DO WE HAVE ON DECISION
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+decision$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-
-
-// ============================================================
-// PROJECT / INITIATIVE ENTITY EXTRACTION
-// ============================================================
-
-if (intent === "project_lookup") {
-
-  console.log("========== PROJECT ENTITY BLOCK ==========");
-  console.log({
-    originalQuestion,
-    value,
-    intent,
-    field,
-  });
-
-  // ----------------------------------------------------------
-  // 1. TELL ME ABOUT ENTITY PROJECT
-  // ----------------------------------------------------------
-
-  let match = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+project$/i
-  );
-  console.log("PROJECT PATTERN 1:", match);
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    console.log("PROJECT EXTRACTED ENTITY:", entity);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 2. PROJECT RECORD FOR ENTITY PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)\s+project$/i
-  );
-
-  // ----------------------------------------------------------
-// 1B. TELL ME ENTITY PROJECT
-// ----------------------------------------------------------
-
-match = value.match(
-  /^tell\s+me\s+(?:the\s+)?(.+?)\s+project$/i
-);
-
-console.log("PROJECT PATTERN 1B:", match);
-
-if (match?.[1]) {
-  const entity = cleanExtractedEntity(match[1]);
-
-  console.log("PROJECT EXTRACTED ENTITY 1B:", entity);
-
-  if (entity && isValidEntity(entity)) {
-    return normalizeEntity(entity);
-  }
-}
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-// ----------------------------------------------------------
-// 2. PROJECT RECORD FOR ENTITY
-// ----------------------------------------------------------
-
-match = value.match(
-  /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)$/i
-);
-
-console.log("PROJECT RECORD PATTERN:", match);
-
-if (match?.[1]) {
-  const entity = cleanExtractedEntity(
-    match[1].replace(/\s+project$/i, "")
-  );
-
-  console.log("PROJECT RECORD EXTRACTED ENTITY:", entity);
-
-  if (entity && isValidEntity(entity)) {
-    return normalizeEntity(entity);
-  }
-}
-
-  // ----------------------------------------------------------
-  // 3. PROJECT INFORMATION FOR ENTITY PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^give\s+me\s+(?:the\s+)?project\s+information\s+for\s+(.+?)\s+project$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 4. PROJECT FOR ENTITY PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+for\s+(.+?)\s+project$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 5. ENTITY + PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 6. TELL ME ENTITY PROJECT DETAILS
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^tell\s+me\s+(?:the\s+)?(.+?)\s+project\s+(?:details?|records?|information)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 7. I NEED / WANT ENTITY PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 8. WHAT PROJECT INFORMATION DO WE HAVE
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+project\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+project$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // 9. WHAT INFORMATION DO WE HAVE ON PROJECT
-  // ----------------------------------------------------------
-
-  match = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+project$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-// ============================================================
-// TRANSACTION 
-// ============================================================
-
-
-if (intent === "transaction_lookup") {
-
-//   // ============================================================
-// // HIGH-PRIORITY POLICY PATTERNS
-// // ============================================================
-
-// // 1. Tell me about the Leave Policy
-// // 2. Tell me about Leave Policy
-// const aboutPolicyExact = value.match(
-//   /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+policy$/i
-// );
-
-// if (aboutPolicyExact?.[1]) {
-//   const entity = cleanExtractedEntity(aboutPolicyExact[1]);
-
-//   if (entity && isValidEntity(entity)) {
-//     return normalizeEntity(entity);
-//   }
-// }
-
-
-// // 3. Find the policy record for Leave Policy
-// // 4. Show me the policy record for Leave Policy
-// const policyRecordExact = value.match(
-//   /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+record\s+for\s+(.+?)\s+policy$/i
-// );
-
-// if (policyRecordExact?.[1]) {
-//   const entity = cleanExtractedEntity(policyRecordExact[1]);
-
-//   if (entity && isValidEntity(entity)) {
-//     return normalizeEntity(entity);
-//   }
-// }
-
-
-// // 5. Give me the policy information for Leave Policy
-// const policyInformationExact = value.match(
-//   /^give\s+me\s+(?:the\s+)?policy\s+information\s+for\s+(.+?)\s+policy$/i
-// );
-
-// if (policyInformationExact?.[1]) {
-//   const entity = cleanExtractedEntity(policyInformationExact[1]);
-
-//   if (entity && isValidEntity(entity)) {
-//     return normalizeEntity(entity);
-//   }
-// }
-
-
-// // 6. Find the policy for Leave Policy
-// // 7. Show me the policy for Leave Policy
-// const policyForExact = value.match(
-//   /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+for\s+(.+?)\s+policy$/i
-// );
-
-// if (policyForExact?.[1]) {
-//   const entity = cleanExtractedEntity(policyForExact[1]);
-
-//   if (entity && isValidEntity(entity)) {
-//     return normalizeEntity(entity);
-//   }
-// }
-
-
-  // FIX #20
-  if (
-    /^tell\s+me\s+about\s+(.+?)['’]s\s+transactions?\??$/i.test(value)
-  ) {
-    const match = value.match(
-      /^tell\s+me\s+about\s+(.+?)['’]s\s+transactions?\??$/i
-    );
-
-    if (match?.[1]) {
-      return normalizeEntity(match[1].trim());
-    }
-  }
-
-  // FIX #23
-  if (
-    /^what\s+information\s+do\s+we\s+have\s+on\s+(.+?)['’]s\s+transactions?\??$/i.test(
-      value
-    )
-  ) {
-    const match = value.match(
-      /^what\s+information\s+do\s+we\s+have\s+on\s+(.+?)['’]s\s+transactions?\??$/i
-    );
-
-    if (match?.[1]) {
-      return normalizeEntity(match[1].trim());
-    }
-  }
-
-  // FIX #24
-  if (
-    /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+transaction\s+(?:record|details?)\??$/i.test(
-      value
-    )
-  ) {
-    const match = value.match(
-      /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+transaction\s+(?:record|details?)\??$/i
-    );
-
-    if (match?.[1]) {
-      return normalizeEntity(match[1].trim());
-    }
-  }
-
-  // --------------------------------------------------
-  // A. ENTITY + TRANSACTION/PAYMENT
-  // --------------------------------------------------
-
-  const entityFirstMatch = value.match(
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(.+?)\s+(?:transaction|transactions|payment|payments)(?:\s+(?:detail|details|record|records|information))?\??$/i
-  );
-
-  if (entityFirstMatch?.[1]) {
-    const entity = entityFirstMatch[1].trim();
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------
-  // B. TRANSACTION/PAYMENT + FOR/ON + ENTITY
-  // --------------------------------------------------
-
-  const entityLastMatch = value.match(
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:transaction|transactions|payment|payments)\s+(?:detail|details|record|records|information)\s+(?:for|of|on)\s+(.+?)\??$/i
-  );
-
-  if (entityLastMatch?.[1]) {
-    const entity = entityLastMatch[1].trim();
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------
-  // C. TRANSACTION INFORMATION + FOR/ON + ENTITY
-  // --------------------------------------------------
-
-  const transactionInfoMatch = value.match(
-    /^what\s+transaction\s+(?:information|details|records?)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)\??$/i
-  );
-
-  if (transactionInfoMatch?.[1]) {
-    const entity = transactionInfoMatch[1].trim();
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------
-  // D. POSSESSIVE TRANSACTION/PAYMENT
-  // --------------------------------------------------
-
-  const possessiveMatch = value.match(
-    /^(?:tell\s+me\s+about|what\s+information\s+do\s+we\s+have\s+(?:on|for)|give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:transaction|transactions|payment|payments)(?:\s+(?:detail|details|record|records|information))?\??$/i
-  );
-
-  if (possessiveMatch?.[1]) {
-    const entity = possessiveMatch[1].trim();
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------
-  // E. DIRECT "ABOUT" TRANSACTIONS
-  // --------------------------------------------------
-
-  const aboutMatch = value.match(
-    /^tell\s+me\s+about\s+(.+?)['’]s\s+(?:transaction|transactions|payment|payments)\??$/i
-  );
-
-  if (aboutMatch?.[1]) {
-    const entity = aboutMatch[1].trim();
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-} // <-- IMPORTANT: closes transaction_lookup
-
-// ============================================================
-// 1G. DOCUMENT / FILE ENTITY EXTRACTION
-// ============================================================
-
-if (intent === "document_lookup") {
-
-  // ----------------------------------------------------------
-// FIX: TELL ME ABOUT THE DOCUMENT/FILE
-// ----------------------------------------------------------
-
-const tellAboutDocumentMatch = value.match(
-  /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?\??$/i
-);
-
-if (tellAboutDocumentMatch?.[1]) {
-  const entity = cleanExtractedEntity(
-    cleanDomainEntity(
-      tellAboutDocumentMatch[1]
-    )
-  );
-
-  if (entity && isValidEntity(entity)) {
-    return normalizeEntity(entity);
-  }
-}
-
-  // ----------------------------------------------------------
-  // A. ENTITY + DOCUMENT/FILE
-  //
-  // Find ADEVAG LETTER HEAD document
-  // What is ADEVAG LETTER HEAD document?
-  // Get ADEVAG LETTER HEAD document
-  // Show me ADEVAG LETTER HEAD document
-  // ----------------------------------------------------------
-
-  const entityFirstMatch = value.match(
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?\??$/i
-  );
-
-  if (entityFirstMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(entityFirstMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // B. DOCUMENT/FILE + DETAILS + ENTITY
-  //
-  // Find the document record for ADEVAG LETTER HEAD
-  // Show me the file record for ADEVAG LETTER HEAD
-  // ----------------------------------------------------------
-
-  const entityLastMatch = value.match(
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:document|documents|file|files)\s+(?:detail|details|record|records|information)\s+(?:for|of|on)\s+(.+?)\??$/i
-  );
-
-  if (entityLastMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(entityLastMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // C. WHAT DOCUMENT INFORMATION DO WE HAVE FOR ENTITY
-  //
-  // What document information do we have for ADEVAG LETTER HEAD?
-  // ----------------------------------------------------------
-
-  const documentInfoMatch = value.match(
-    /^what\s+document\s+(?:information|details|records?)\s+do\s+we\s+have\s+(?:for|on)\s+(.+?)\??$/i
-  );
-
-  if (documentInfoMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(documentInfoMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // D. WHAT INFORMATION DO WE HAVE ON ENTITY
-  //
-  // What information do we have on ADEVAG LETTER HEAD?
-  // ----------------------------------------------------------
-
-  const informationMatch = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\??$/i
-  );
-
-  if (informationMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(informationMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // E. TELL ME ABOUT ENTITY + DOCUMENT/FILE
-  //
-  // Tell me about the ADEVAG LETTER HEAD file
-  // Tell me about ADEVAG LETTER HEAD document
-  // ----------------------------------------------------------
-
-  const aboutDocumentMatch = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?\??$/i
-  );
-
-  if (aboutDocumentMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(aboutDocumentMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // F. SIMPLE "TELL ME ABOUT ENTITY"
-  //
-  // Tell me about ADEVAG LETTER HEAD
-  // ----------------------------------------------------------
-
-  const simpleAboutMatch = value.match(
-    /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\??$/i
-  );
-
-  if (simpleAboutMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(simpleAboutMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // ----------------------------------------------------------
-  // G. I NEED / WANT ENTITY DOCUMENT DETAILS
-  //
-  // I need ADEVAG LETTER HEAD document details
-  // I want ADEVAG LETTER HEAD file details
-  // ----------------------------------------------------------
-
-  const needDocumentMatch = value.match(
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?\??$/i
-  );
-
-  if (needDocumentMatch?.[1]) {
-    const entity = cleanExtractedEntity(
-      cleanDomainEntity(needDocumentMatch[1])
-    );
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-
-// ==========================================================
-// GENERAL ORGANIZATIONAL ENTITY EXTRACTION
-// ==========================================================
-
-if (intent === "general_knowledge") {
-
-  // --------------------------------------------------------
-  // WHAT INFORMATION DO WE HAVE ON/FOR ENTITY
-  // Examples:
-  // What information do we have on Leave Project?
-  // What information do we have about Leave Project?
-  // What information do we have for Leave Project?
-  // --------------------------------------------------------
-
-  let match = value.match(
-    /^what\s+information\s+do\s+we\s+have\s+(?:on|about|for)\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // WHAT DO WE KNOW ABOUT/ON ENTITY
-  // Examples:
-  // What do we know about Leave Project?
-  // What do we know about the organization?
-  // --------------------------------------------------------
-
-  match = value.match(
-    /^what\s+do\s+we\s+know\s+(?:about|on)\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
-
   // ==========================================================
-  // 1. FIELD + OF/FOR + ENTITY
-  //
-  // What is the account number of Seth Olai?
-  // What is the balance for Seth Olai?
-  // Account number of Seth Olai
-  // Customer details for Seth Olai
+  // GENERAL ORGANIZATIONAL QUESTIONS WITHOUT AN ENTITY
   // ==========================================================
 
-  const fieldAliases = getFieldAliases(field);
+  if (
+    intent === "general_knowledge"
+  ) {
 
-  if (fieldAliases.length > 0) {
-    const fieldPattern = fieldAliases
-      .map(escapeRegex)
-      .join("|");
+    const genericGeneralQuestionPatterns = [
 
-    const fieldOfForRegex = new RegExp(
-      `(?:^|\\s)(?:${fieldPattern})\\s+(?:of|for)\\s+(.+?)$`,
-      "i"
-    );
+      // ORGANIZATION
 
-    const fieldOfForMatch =
-      value.match(fieldOfForRegex);
+      /^what\s+do\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
+      /^tell\s+me\s+about\s+(?:the\s+)?organization$/i,
+      /^what\s+information\s+do\s+we\s+have\s+about\s+(?:the\s+)?organization$/i,
+      /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?company$/i,
+      /^tell\s+me\s+what\s+is\s+known\s+about\s+(?:the\s+)?organization$/i,
+      /^what\s+do\s+we\s+currently\s+know\s+about\s+(?:the\s+)?organization$/i,
+      /^what\s+information\s+has\s+been\s+captured\s+about\s+(?:the\s+)?organization$/i,
 
-    if (fieldOfForMatch?.[1]) {
-      const entity = cleanExtractedEntity(
-        fieldOfForMatch[1]
+      // COMPANY
+
+      /^what\s+do\s+we\s+know\s+about\s+our\s+company$/i,
+      /^what\s+information\s+do\s+we\s+have\s+about\s+our\s+company$/i,
+      /^what\s+company\s+information\s+is\s+available$/i,
+      /^what\s+company\s+knowledge\s+is\s+available$/i,
+      /^what\s+knowledge\s+has\s+been\s+captured\s+about\s+our\s+company$/i,
+
+      // ORGANIZATIONAL KNOWLEDGE
+
+      /^what\s+knowledge\s+is\s+available\s+in\s+(?:the\s+)?organization$/i,
+      /^what\s+organizational\s+information\s+do\s+we\s+have$/i,
+      /^what\s+organizational\s+knowledge\s+is\s+available$/i,
+      /^what\s+information\s+is\s+available\s+across\s+(?:the\s+)?organization$/i,
+
+      // ORGBRAIN
+
+      /^what\s+information\s+is\s+stored\s+in\s+orgbrain$/i,
+      /^what\s+knowledge\s+is\s+available\s+in\s+orgbrain$/i,
+      /^what\s+knowledge\s+is\s+in\s+orgbrain$/i,
+      /^what\s+information\s+is\s+in\s+orgbrain$/i,
+      /^what\s+does\s+orgbrain\s+know$/i,
+      /^what\s+does\s+orgbrain\s+know\s+about\s+(?:the\s+)?organization$/i,
+      /^what\s+does\s+orgbrain\s+know\s+about\s+our\s+organization$/i,
+      /^what\s+does\s+orgbrain\s+know\s+about\s+the\s+company$/i,
+      /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+(?:the\s+)?organization$/i,
+      /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+our\s+organization$/i,
+      /^what\s+can\s+i\s+learn\s+about\s+(?:the\s+)?organization\s+from\s+orgbrain$/i,
+
+      // OVERVIEW
+
+      /^give\s+me\s+an?\s+overview\s+of\s+(?:the\s+)?organization$/i,
+      /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+(?:the\s+)?organization$/i,
+      /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+our\s+company$/i,
+      /^give\s+me\s+an?\s+overview\s+of\s+the\s+knowledge\s+in\s+orgbrain$/i,
+
+      // SUMMARY
+
+      /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
+      /^give\s+me\s+a\s+summary\s+of\s+our\s+organizational\s+knowledge$/i,
+      /^give\s+me\s+a\s+general\s+summary\s+of\s+what\s+orgbrain\s+knows$/i,
+      /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know$/i,
+    ];
+
+    if (
+      genericGeneralQuestionPatterns.some(
+        (pattern) =>
+          pattern.test(value)
+      )
+    ) {
+      return null;
+    }
+
+    const broadGeneralStructurePatterns = [
+      /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?(?:company|organization)$/i,
+
+      /^give\s+me\s+(?:an?\s+)?overview\s+of\s+(?:the\s+)?(?:company|organization)$/i,
+
+      /^give\s+me\s+(?:a\s+)?summary\s+of\s+what\s+we\s+know\s+about\s+(?:the\s+)?(?:company|organization)$/i,
+
+      /^give\s+me\s+(?:an?\s+)?overview\s+of\s+the\s+knowledge\s+in\s+orgbrain$/i,
+    ];
+
+    if (
+      broadGeneralStructurePatterns.some(
+        (pattern) =>
+          pattern.test(value)
+      )
+    ) {
+      return null;
+    }
+  }
+
+  // ==========================================================
+  // POLICY ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "policy_lookup"
+  ) {
+
+    let match =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+policy$/i
       );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
 
       if (
         entity &&
         isValidEntity(entity)
       ) {
-        return normalizeEntity(entity);
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+record\s+for\s+(.+?)\s+policy$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^give\s+me\s+(?:the\s+)?policy\s+information\s+for\s+(.+?)\s+policy$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+for\s+(.+?)\s+policy$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^tell\s+me\s+(?:the\s+)?(.+?)\s+policy\s+(?:details?|records?|information)$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+policy\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+policy$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+policy$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
       }
     }
   }
 
   // ==========================================================
-  // 1B. NATURAL OPENING-DATE QUESTIONS
+  // PROCEDURE / PROCESS ENTITY EXTRACTION
   // ==========================================================
 
-  if (field === "open_date") {
+  if (
+    intent === "procedure_lookup"
+  ) {
+
+    let match =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+record\s+for\s+(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^give\s+me\s+(?:the\s+)?procedure\s+information\s+for\s+(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+for\s+(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^tell\s+me\s+(?:the\s+)?(.+?)\s+procedure\s+(?:details?|records?|information)$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+procedure\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+procedure$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // DECISION / APPROVAL ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "decision_lookup"
+  ) {
+
+    let match =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+record\s+for\s+(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^give\s+me\s+(?:the\s+)?decision\s+information\s+for\s+(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+for\s+(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^tell\s+me\s+(?:the\s+)?(.+?)\s+decision\s+(?:details?|records?|information)$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+decision\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+decision$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // PROJECT / INITIATIVE ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "project_lookup"
+  ) {
+
+    console.log(
+      "========== PROJECT ENTITY BLOCK =========="
+    );
+
+    console.log({
+      originalQuestion,
+      value,
+      intent,
+      field,
+    });
+
+    let match =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^tell\s+me\s+(?:the\s+)?(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1].replace(
+            /\s+project$/i,
+            ""
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^give\s+me\s+(?:the\s+)?project\s+information\s+for\s+(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+for\s+(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^tell\s+me\s+(?:the\s+)?(.+?)\s+project\s+(?:details?|records?|information)$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+project\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+project$/i
+      );
+
+    if (match?.[1]) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // TRANSACTION / PAYMENT ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "transaction_lookup"
+  ) {
+
+    // FIX #20
+
+    if (
+      /^tell\s+me\s+about\s+(.+?)['’]s\s+transactions?$/i.test(
+        value
+      )
+    ) {
+      const match =
+        value.match(
+          /^tell\s+me\s+about\s+(.+?)['’]s\s+transactions?$/i
+        );
+
+      if (match?.[1]) {
+        return normalizeEntity(
+          match[1].trim()
+        );
+      }
+    }
+
+    // FIX #23
+
+    if (
+      /^what\s+information\s+do\s+we\s+have\s+on\s+(.+?)['’]s\s+transactions?$/i.test(
+        value
+      )
+    ) {
+      const match =
+        value.match(
+          /^what\s+information\s+do\s+we\s+have\s+on\s+(.+?)['’]s\s+transactions?$/i
+        );
+
+      if (match?.[1]) {
+        return normalizeEntity(
+          match[1].trim()
+        );
+      }
+    }
+
+    // FIX #24
+
+    if (
+      /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+transaction\s+(?:record|details?)?$/i.test(
+        value
+      )
+    ) {
+      const match =
+        value.match(
+          /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+transaction\s+(?:record|details?)?$/i
+        );
+
+      if (match?.[1]) {
+        return normalizeEntity(
+          match[1].trim()
+        );
+      }
+    }
+
+    // A. ENTITY + TRANSACTION/PAYMENT
+
+    const entityFirstMatch =
+      value.match(
+        /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(.+?)\s+(?:transaction|transactions|payment|payments)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      entityFirstMatch?.[1]
+    ) {
+      const entity =
+        entityFirstMatch[1].trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // B. TRANSACTION/PAYMENT + FOR/ON + ENTITY
+
+    const entityLastMatch =
+      value.match(
+        /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:transaction|transactions|payment|payments)\s+(?:detail|details|record|records|information)\s+(?:for|of|on)\s+(.+?)$/i
+      );
+
+    if (
+      entityLastMatch?.[1]
+    ) {
+      const entity =
+        entityLastMatch[1].trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // C. TRANSACTION INFORMATION + FOR/ON + ENTITY
+
+    const transactionInfoMatch =
+      value.match(
+        /^what\s+transaction\s+(?:information|details|records?)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)$/i
+      );
+
+    if (
+      transactionInfoMatch?.[1]
+    ) {
+      const entity =
+        transactionInfoMatch[1].trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // D. POSSESSIVE TRANSACTION/PAYMENT
+
+    const possessiveMatch =
+      value.match(
+        /^(?:tell\s+me\s+about|what\s+information\s+do\s+we\s+have\s+(?:on|for)|give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:transaction|transactions|payment|payments)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      possessiveMatch?.[1]
+    ) {
+      const entity =
+        possessiveMatch[1].trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // E. DIRECT ABOUT TRANSACTIONS
+
+    const aboutMatch =
+      value.match(
+        /^tell\s+me\s+about\s+(.+?)['’]s\s+(?:transaction|transactions|payment|payments)?$/i
+      );
+
+    if (
+      aboutMatch?.[1]
+    ) {
+      const entity =
+        aboutMatch[1].trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // DOCUMENT / FILE ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "document_lookup"
+  ) {
+
+    const tellAboutDocumentMatch =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      tellAboutDocumentMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            tellAboutDocumentMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const entityFirstMatch =
+      value.match(
+        /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      entityFirstMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            entityFirstMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const entityLastMatch =
+      value.match(
+        /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:document|documents|file|files)\s+(?:detail|details|record|records|information)\s+(?:for|of|on)\s+(.+?)$/i
+      );
+
+    if (
+      entityLastMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            entityLastMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const documentInfoMatch =
+      value.match(
+        /^what\s+document\s+(?:information|details|records?)\s+do\s+we\s+have\s+(?:for|on)\s+(.+?)$/i
+      );
+
+    if (
+      documentInfoMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            documentInfoMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const informationMatch =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)$/i
+      );
+
+    if (
+      informationMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            informationMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const aboutDocumentMatch =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      aboutDocumentMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            aboutDocumentMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const simpleAboutMatch =
+      value.match(
+        /^tell\s+me\s+about\s+(?:the\s+)?(.+?)$/i
+      );
+
+    if (
+      simpleAboutMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            simpleAboutMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    const needDocumentMatch =
+      value.match(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+(?:document|documents|file|files)(?:\s+(?:detail|details|record|records|information))?$/i
+      );
+
+    if (
+      needDocumentMatch?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          cleanDomainEntity(
+            needDocumentMatch[1]
+          )
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // GENERAL ORGANIZATIONAL ENTITY EXTRACTION
+  // ==========================================================
+
+  if (
+    intent === "general_knowledge"
+  ) {
+
+    let match =
+      value.match(
+        /^what\s+information\s+do\s+we\s+have\s+(?:on|about|for)\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    match =
+      value.match(
+        /^what\s+do\s+we\s+know\s+(?:about|on)\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // FIELD + OF/FOR + ENTITY
+  // ==========================================================
+
+  const fieldAliases =
+    getFieldAliases(field);
+
+  if (
+    fieldAliases.length > 0
+  ) {
+
+    const fieldPattern =
+      fieldAliases
+        .map(escapeRegex)
+        .join("|");
+
+    const fieldOfForRegex =
+      new RegExp(
+        `(?:^|\\s)(?:${fieldPattern})\\s+(?:of|for)\\s+(.+?)$`,
+        "i"
+      );
+
+    const fieldOfForMatch =
+      value.match(
+        fieldOfForRegex
+      );
+
+    if (
+      fieldOfForMatch?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          fieldOfForMatch[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+  }
+
+  // ==========================================================
+  // NATURAL OPENING-DATE QUESTIONS
+  // ==========================================================
+
+  if (
+    field === "open_date"
+  ) {
+
     const openingDatePatterns = [
       /^(?:when\s+was)\s+(.+?)\s+(?:account\s+)?opened$/i,
 
@@ -2137,33 +2725,48 @@ if (intent === "general_knowledge") {
     for (
       const pattern of openingDatePatterns
     ) {
-      const match = value.match(pattern);
 
-      if (match?.[1]) {
+      const match =
+        value.match(
+          pattern
+        );
+
+      if (
+        match?.[1]
+      ) {
+
         const entity =
-          cleanExtractedEntity(match[1]);
+          cleanExtractedEntity(
+            match[1]
+          );
 
         if (
           entity &&
           isValidEntity(entity)
         ) {
-          return normalizeEntity(entity);
+          return normalizeEntity(
+            entity
+          );
         }
       }
     }
   }
 
   // ==========================================================
-  // 1C. NATURAL ACCOUNT-NAME QUESTIONS
+  // NATURAL ACCOUNT-NAME QUESTIONS
   // ==========================================================
 
-  if (field === "account_name") {
-    value = value
-      .replace(
-        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+/i,
-        ""
-      )
-      .trim();
+  if (
+    field === "account_name"
+  ) {
+
+    value =
+      value
+        .replace(
+          /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+/i,
+          ""
+        )
+        .trim();
 
     const accountNamePatterns = [
       /^(?:the\s+)?name\s+on\s+(.+?)['’]s\s+account$/i,
@@ -2190,364 +2793,444 @@ if (intent === "general_knowledge") {
     for (
       const pattern of accountNamePatterns
     ) {
-      const match = value.match(pattern);
 
-      if (match?.[1]) {
+      const match =
+        value.match(
+          pattern
+        );
+
+      if (
+        match?.[1]
+      ) {
+
         const entity =
-          cleanExtractedEntity(match[1]);
+          cleanExtractedEntity(
+            match[1]
+          );
 
         if (
           entity &&
           isValidEntity(entity)
         ) {
-          return normalizeEntity(entity);
+          return normalizeEntity(
+            entity
+          );
         }
       }
     }
   }
 
   // ==========================================================
-  // 1D. NATURAL CUSTOMER / CLIENT QUESTIONS
-  //
-  // Find the customer record for Seth Olai
-  // Show me the customer record for Seth Olai
-  // What customer information do we have for Seth Olai?
-  // Tell me about Seth Olai as a customer
-  // What information do we have on Seth Olai as a client?
+  // NATURAL CUSTOMER / CLIENT QUESTIONS
   // ==========================================================
 
+  if (
+    field === "customer_name"
+  ) {
+
+    const customerPatterns = [
+
+      /^(?:show\s+me|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:customer|client)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
+
+      /^(?:customer|client)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
+
+      /^(?:show\s+me|show|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(.+?)\s+(?:customer|client)\s+(?:details|information|record)$/i,
+
+      /^(?:what\s+is|what\s+are)\s+(.+?)\s+(?:customer|client)\s+(?:details|information|record)?$/i,
+
+      /^(?:what\s+)?(?:customer|client)\s+(?:information|details)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)$/i,
+
+      /^(?:what\s+)?information\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:on|for)\s+(.+?)\s+as\s+(?:a\s+)?(?:customer|client)?$/i,
+
+      /^(?:tell\s+me)\s+about\s+(.+?)\s+as\s+(?:a\s+)?(?:customer|client)?$/i,
+
+      /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve)\s+(.+?)['’]s\s+(?:customer|client)\s+(?:record|details|information)$/i,
+
+      /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:customer|client)\s+(?:record|details|information)$/i,
+    ];
+
+    for (
+      const pattern of customerPatterns
+    ) {
+
+      const match =
+        value.match(
+          pattern
+        );
+
+      if (
+        match?.[1]
+      ) {
+
+        const entity =
+          cleanExtractedEntity(
+            match[1]
+          );
+
+        if (
+          entity &&
+          isValidEntity(entity)
+        ) {
+          return normalizeEntity(
+            entity
+          );
+        }
+      }
+    }
+  }
+
   // ==========================================================
-// 1D. NATURAL CUSTOMER / CLIENT QUESTIONS
-// ==========================================================
+  // NATURAL EMPLOYEE / STAFF QUESTIONS
+  // ==========================================================
 
-if (field === "customer_name") {
-  const customerPatterns = [
+  if (
+    field === "employee_name"
+  ) {
 
-  // ========================================================
-  // 1. SHOW ME THE CUSTOMER/CLIENT RECORD FOR ENTITY
-  //    MUST COME BEFORE GENERIC "SHOW" PATTERNS
-  // ========================================================
+    const employeePatterns = [
 
-  /^(?:show\s+me|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:customer|client)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
+      /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:employee|staff)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
 
-  // ========================================================
-  // 2. CUSTOMER/CLIENT RECORD FOR ENTITY
-  // ========================================================
+      /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(.+?)\s+(?:employee|staff)\s+(?:details|information|record)$/i,
 
-  /^(?:customer|client)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
+      /^(?:what\s+is|what\s+are)\s+(.+?)\s+(?:employee|staff)\s+(?:details|information|record)?$/i,
 
-  // ========================================================
-  // 3. SHOW ME / OTHER VERB + ENTITY + CUSTOMER/CLIENT
-  // ========================================================
+      /^(?:what\s+)?(?:employee|staff)\s+(?:information|details)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)$/i,
 
-  /^(?:show\s+me|show|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(.+?)\s+(?:customer|client)\s+(?:details|information|record)$/i,
+      /^(?:what\s+)?information\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:on|for)\s+(.+?)\s+as\s+(?:an\s+employee|a\s+staff\s+member|staff)?$/i,
 
-  // ========================================================
-  // 4. WHAT IS/ARE + ENTITY + CUSTOMER/CLIENT
-  // ========================================================
+      /^(?:tell\s+me)\s+about\s+(.+?)\s+as\s+(?:an\s+employee|a\s+staff\s+member|staff)?$/i,
 
-  /^(?:what\s+is|what\s+are)\s+(.+?)\s+(?:customer|client)\s+(?:details|information|record)\??$/i,
+      /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve)\s+(.+?)['’]s\s+(?:employee|staff)\s+(?:record|details|information)$/i,
 
-  // ========================================================
-  // 5. CUSTOMER/CLIENT INFORMATION WE HAVE FOR ENTITY
-  // ========================================================
+      /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:employee|staff)\s+(?:record|details|information)$/i,
+    ];
 
-  /^(?:what\s+)?(?:customer|client)\s+(?:information|details)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)$/i,
+    for (
+      const pattern of employeePatterns
+    ) {
 
-  // ========================================================
-  // 6. WHAT INFORMATION DO WE HAVE ON ENTITY AS CUSTOMER
-  // ========================================================
+      const match =
+        value.match(
+          pattern
+        );
 
-  /^(?:what\s+)?information\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:on|for)\s+(.+?)\s+as\s+(?:a\s+)?(?:customer|client)\??$/i,
+      if (
+        match?.[1]
+      ) {
 
-  // ========================================================
-  // 7. TELL ME ABOUT ENTITY AS CUSTOMER
-  // ========================================================
+        const entity =
+          cleanExtractedEntity(
+            match[1]
+          );
 
-  /^(?:tell\s+me)\s+about\s+(.+?)\s+as\s+(?:a\s+)?(?:customer|client)\??$/i,
+        if (
+          entity &&
+          isValidEntity(entity)
+        ) {
+          return normalizeEntity(
+            entity
+          );
+        }
+      }
+    }
+  }
 
-  // ========================================================
-  // 8. POSSESSIVE CUSTOMER RECORD
-  // ========================================================
+  // ==========================================================
+  // COMPLEX ACCOUNT / ENTITY EXTRACTION
+  // ==========================================================
 
-  /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve)\s+(.+?)['’]s\s+(?:customer|client)\s+(?:record|details|information)$/i,
+  if (
+    intent === "account_lookup"
+  ) {
 
-  // ========================================================
-  // 9. I NEED / WANT POSSESSIVE CUSTOMER RECORD
-  // ========================================================
+    let match: RegExpMatchArray | null =
+      null;
 
-  /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:customer|client)\s+(?:record|details|information)$/i,
-];
+    // 1. ACCOUNT + NUMBER + NUMERIC IDENTIFIER
 
-  for (const pattern of customerPatterns) {
-    const match = value.match(pattern);
+    match =
+      value.match(
+        /\baccount\s+(?:with\s+number|number|no\.?|#)\s+([0-9]{4,})\b/i
+      );
 
-    if (match?.[1]) {
-      const entity = cleanExtractedEntity(match[1]);
+    if (
+      match?.[1]
+    ) {
+      return normalizeEntity(
+        match[1]
+      );
+    }
+
+    // 2. ACCOUNT + NUMERIC IDENTIFIER
+
+    match =
+      value.match(
+        /\baccount\b.*?\b([0-9]{6,})\b/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+      return normalizeEntity(
+        match[1]
+      );
+    }
+
+    // 3. ACCOUNT BELONGING TO ENTITY
+
+    match =
+      value.match(
+        /\baccount(?:\s+(?:record|details|information))?\s+belonging\s+to\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
 
       if (
         entity &&
         isValidEntity(entity)
       ) {
-        return normalizeEntity(entity);
+        return normalizeEntity(
+          entity
+        );
       }
     }
-  }
-}
 
+    // 4. ACCOUNT REGISTERED UNDER ENTITY
 
+    match =
+      value.match(
+        /\baccount(?:\s+(?:record|details|information))?\s+registered\s+under\s+(.+?)$/i
+      );
 
-// ==========================================================
-// 1E. NATURAL EMPLOYEE / STAFF QUESTIONS
-// ==========================================================
+    if (
+      match?.[1]
+    ) {
 
-if (field === "employee_name") {
-  const employeePatterns = [
-
-    // EMPLOYEE/STAFF RECORD FOR ENTITY
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(?:employee|staff)\s+(?:record|details|information)\s+(?:for|of)\s+(.+?)$/i,
-
-    // ENTITY + EMPLOYEE/STAFF + DETAILS
-    /^(?:find|show\s+me|show|find\s+me|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|tell\s+me|check)\s+(?:the\s+)?(.+?)\s+(?:employee|staff)\s+(?:details|information|record)$/i,
-
-    // WHAT IS/ARE ENTITY + EMPLOYEE/STAFF
-    /^(?:what\s+is|what\s+are)\s+(.+?)\s+(?:employee|staff)\s+(?:details|information|record)\??$/i,
-
-    // EMPLOYEE/STAFF INFORMATION FOR ENTITY
-    /^(?:what\s+)?(?:employee|staff)\s+(?:information|details)\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:for|on)\s+(.+?)$/i,
-
-    // INFORMATION ON ENTITY AS EMPLOYEE/STAFF
-    /^(?:what\s+)?information\s+(?:do\s+we\s+have|do\s+you\s+have)\s+(?:on|for)\s+(.+?)\s+as\s+(?:an\s+employee|a\s+staff\s+member|staff)\??$/i,
-
-    // TELL ME ABOUT ENTITY AS EMPLOYEE
-    /^(?:tell\s+me)\s+about\s+(.+?)\s+as\s+(?:an\s+employee|a\s+staff\s+member|staff)\??$/i,
-
-    // POSSESSIVE EMPLOYEE/STAFF RECORD
-    /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve)\s+(.+?)['’]s\s+(?:employee|staff)\s+(?:record|details|information)$/i,
-
-    // I NEED / WANT POSSESSIVE EMPLOYEE RECORD
-    /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+(?:employee|staff)\s+(?:record|details|information)$/i,
-  ];
-
-  for (const pattern of employeePatterns) {
-    const match = value.match(pattern);
-
-    if (match?.[1]) {
-      const entity = cleanExtractedEntity(match[1]);
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
 
       if (
         entity &&
         isValidEntity(entity)
       ) {
-        return normalizeEntity(entity);
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 5. ACCOUNT ASSOCIATED WITH ENTITY
+
+    match =
+      value.match(
+        /\baccount(?:\s+(?:record|details|information))?\s+associated\s+with\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 6. ACCOUNT DETAILS / INFORMATION FOR ENTITY
+
+    match =
+      value.match(
+        /\baccount(?:\s+(?:details|information|record))?\s+for\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 7. ENTITY'S SAVINGS ACCOUNT
+
+    match =
+      value.match(
+        /^(.+?)['’]s\s+(?:savings\s+)?account$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 8. ENTITY'S ACCOUNT DETAILS / INFORMATION
+
+    match =
+      value.match(
+        /^(.+?)['’]s\s+account\s+(?:details|information|record)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 9. ACCOUNT BELONGS TO ENTITY
+
+    match =
+      value.match(
+        /\baccount\s+belongs?\s+to\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 10. WHICH ACCOUNT DOES ENTITY HAVE?
+
+    match =
+      value.match(
+        /^what\s+account\s+does\s+(.+?)\s+have$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 11. SAVINGS DEPOSIT BELONGING TO ENTITY
+
+    match =
+      value.match(
+        /\bsavings\s+deposit\s+belonging\s+to\s+(.+?)$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      const entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
       }
     }
   }
-}
-
-
-// ==========================================================
-// COMPLEX ACCOUNT / ENTITY EXTRACTION
-// ==========================================================
-//
-// Handles natural account questions such as:
-//
-// Find Josephine Osae's savings account
-// Show me the account belonging to Josephine Osae
-// Get the account details for Josephine Osae
-// What account does Josephine Osae have?
-// Show me the account details for 1011000001126
-// Find the account with number 1011000001126
-// Find the transaction records for account 1011000001126
-// Show me the payment information for account 1011000001126
-// Find the savings deposit belonging to Josephine Osae
-// I need the account information belonging to Josephine Osae
-// Please find the account registered under Josephine Osae
-// Tell me which account belongs to Josephine Osae
-// Find the account record associated with 1011000001126
-// Show me all available information for account 1011000001126
-// ==========================================================
-
-if (intent === "account_lookup") {
-
-  let match: RegExpMatchArray | null = null;
-
-  // --------------------------------------------------------
-  // 1. ACCOUNT + NUMBER + NUMERIC IDENTIFIER
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount\s+(?:with\s+number|number|no\.?|#)\s+([0-9]{4,})\b/i
-  );
-
-  if (match?.[1]) {
-    return normalizeEntity(match[1]);
-  }
-
-  // --------------------------------------------------------
-  // 2. ACCOUNT + NUMERIC IDENTIFIER
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount\b.*?\b([0-9]{6,})\b/i
-  );
-
-  if (match?.[1]) {
-    return normalizeEntity(match[1]);
-  }
-
-  // --------------------------------------------------------
-  // 3. ACCOUNT BELONGING TO ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount(?:\s+(?:record|details|information))?\s+belonging\s+to\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 4. ACCOUNT REGISTERED UNDER ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount(?:\s+(?:record|details|information))?\s+registered\s+under\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 5. ACCOUNT ASSOCIATED WITH ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount(?:\s+(?:record|details|information))?\s+associated\s+with\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 6. ACCOUNT DETAILS / INFORMATION FOR ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount(?:\s+(?:details|information|record))?\s+for\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 7. ENTITY'S SAVINGS ACCOUNT
-  // --------------------------------------------------------
-  match = value.match(
-    /^(.+?)['’]s\s+(?:savings\s+)?account$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 8. ENTITY'S ACCOUNT DETAILS / INFORMATION
-  // --------------------------------------------------------
-  match = value.match(
-    /^(.+?)['’]s\s+account\s+(?:details|information|record)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 9. ACCOUNT BELONGS TO ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\baccount\s+belongs?\s+to\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 10. WHICH ACCOUNT DOES ENTITY HAVE?
-  // --------------------------------------------------------
-  match = value.match(
-    /^what\s+account\s+does\s+(.+?)\s+have$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-
-  // --------------------------------------------------------
-  // 11. SAVINGS DEPOSIT BELONGING TO ENTITY
-  // --------------------------------------------------------
-  match = value.match(
-    /\bsavings\s+deposit\s+belonging\s+to\s+(.+?)$/i
-  );
-
-  if (match?.[1]) {
-    const entity = cleanExtractedEntity(match[1]);
-
-    if (entity && isValidEntity(entity)) {
-      return normalizeEntity(entity);
-    }
-  }
-}
 
   // ==========================================================
   // 2. REMOVE POLITE PREFIXES
   // ==========================================================
 
-  value = value
-    .replace(
-      /^(?:can|could|would|will)\s+you\s+/i,
-      ""
-    )
-    .replace(
-      /^please\s+/i,
-      ""
-    )
-    .replace(
-      /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+/i,
-      ""
-    )
-    .trim();
+  value =
+    value
+      .replace(
+        /^(?:can|could|would|will)\s+you\s+/i,
+        ""
+      )
+      .replace(
+        /^please\s+/i,
+        ""
+      )
+      .replace(
+        /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+/i,
+        ""
+      )
+      .trim();
 
   // ==========================================================
   // 3. COMPOUND / DIRECT LOOKUP VERBS
@@ -2559,25 +3242,33 @@ if (intent === "account_lookup") {
   if (
     compoundLookupPrefix.test(value)
   ) {
-    value = value
-      .replace(
-        compoundLookupPrefix,
-        ""
-      )
-      .trim();
 
-    value = removeFieldFromEnd(
-      value,
-      field
-    );
+    value =
+      value
+        .replace(
+          compoundLookupPrefix,
+          ""
+        )
+        .trim();
 
-    value = cleanExtractedEntity(value);
+    value =
+      removeFieldFromEnd(
+        value,
+        field
+      );
+
+    value =
+      cleanExtractedEntity(
+        value
+      );
 
     if (
       value &&
       isValidEntity(value)
     ) {
-      return normalizeEntity(value);
+      return normalizeEntity(
+        value
+      );
     }
   }
 
@@ -2591,32 +3282,41 @@ if (intent === "account_lookup") {
   if (
     lookupPrefix.test(value)
   ) {
-    value = value
-      .replace(
-        lookupPrefix,
-        ""
-      )
-      .trim();
 
-    value = value
-      .replace(
-        /^please\s+/i,
-        ""
-      )
-      .trim();
+    value =
+      value
+        .replace(
+          lookupPrefix,
+          ""
+        )
+        .trim();
 
-    value = removeFieldFromEnd(
-      value,
-      field
-    );
+    value =
+      value
+        .replace(
+          /^please\s+/i,
+          ""
+        )
+        .trim();
 
-    value = cleanExtractedEntity(value);
+    value =
+      removeFieldFromEnd(
+        value,
+        field
+      );
+
+    value =
+      cleanExtractedEntity(
+        value
+      );
 
     if (
       value &&
       isValidEntity(value)
     ) {
-      return normalizeEntity(value);
+      return normalizeEntity(
+        value
+      );
     }
   }
 
@@ -2628,9 +3328,14 @@ if (intent === "account_lookup") {
     /^(?:what\s+is|what's|what\s+are|who\s+is|who's|tell\s+me|give\s+me|show\s+me)\s+(.+?)['’]s\s+/i;
 
   const possessiveMatch =
-    value.match(possessiveRegex);
+    value.match(
+      possessiveRegex
+    );
 
-  if (possessiveMatch?.[1]) {
+  if (
+    possessiveMatch?.[1]
+  ) {
+
     const entity =
       cleanExtractedEntity(
         possessiveMatch[1]
@@ -2640,7 +3345,9 @@ if (intent === "account_lookup") {
       entity &&
       isValidEntity(entity)
     ) {
-      return normalizeEntity(entity);
+      return normalizeEntity(
+        entity
+      );
     }
   }
 
@@ -2686,7 +3393,10 @@ if (intent === "account_lookup") {
       /^(?:what\s+is|what's|what\s+are)\s+(.+)$/i
     );
 
-  if (whatIsMatch?.[1]) {
+  if (
+    whatIsMatch?.[1]
+  ) {
+
     let entity =
       whatIsMatch[1].trim();
 
@@ -2705,7 +3415,9 @@ if (intent === "account_lookup") {
       entity &&
       isValidEntity(entity)
     ) {
-      return normalizeEntity(entity);
+      return normalizeEntity(
+        entity
+      );
     }
   }
 
@@ -2713,12 +3425,13 @@ if (intent === "account_lookup") {
   // 8. REMOVE COMMON QUESTION PREFIXES
   // ==========================================================
 
-  value = value
-    .replace(
-      /^(?:what\s+is|what's|what\s+are|who\s+is|who's|where\s+is|when\s+was|when\s+did|how\s+much|how\s+many)\s+/i,
-      ""
-    )
-    .trim();
+  value =
+    value
+      .replace(
+        /^(?:what\s+is|what's|what\s+are|who\s+is|who's|where\s+is|when\s+was|when\s+did|how\s+much|how\s+many)\s+/i,
+        ""
+      )
+      .trim();
 
   // ==========================================================
   // 9. REMOVE FIELD
@@ -2740,23 +3453,25 @@ if (intent === "account_lookup") {
   // 10. REMOVE ARTICLES
   // ==========================================================
 
-  value = value
-    .replace(
-      /^(?:the|a|an)\s+/i,
-      ""
-    )
-    .trim();
+  value =
+    value
+      .replace(
+        /^(?:the|a|an)\s+/i,
+        ""
+      )
+      .trim();
 
   // ==========================================================
   // 11. REMOVE TRAILING POSSESSIVE
   // ==========================================================
 
-  value = value
-    .replace(
-      /['’]s$/i,
-      ""
-    )
-    .trim();
+  value =
+    value
+      .replace(
+        /['’]s$/i,
+        ""
+      )
+      .trim();
 
   // ==========================================================
   // 12. VALIDATE
@@ -2779,6 +3494,7 @@ if (intent === "account_lookup") {
 
   return normalized;
 }
+
 // ============================================================
 // SEARCH TERMS
 // ============================================================
@@ -2791,18 +3507,22 @@ function buildSearchTerms(
 
   const terms: string[] = [];
 
-  if (entity) {
-    terms.push(entity);
+  if (
+    entity
+  ) {
+    terms.push(
+      entity
+    );
   }
 
   if (
     field !== "unknown"
   ) {
-    terms.push(field);
 
-    /*
-     * Human-readable field name.
-     */
+    terms.push(
+      field
+    );
+
     terms.push(
       field.replace(
         /_/g,
@@ -2810,16 +3530,13 @@ function buildSearchTerms(
       )
     );
 
-    /*
-     * Include known field aliases.
-     */
     const aliases =
       getFieldAliases(field);
 
     for (
-      const alias
-      of aliases
+      const alias of aliases
     ) {
+
       const normalizedAlias =
         normalizeText(alias);
 
@@ -2862,8 +3579,6 @@ function buildSearchTerms(
 // ============================================================
 
 export function classifyQuestion(
-  
-  
   question: string
 ): LanguageUnderstanding {
 
@@ -2874,7 +3589,6 @@ export function classifyQuestion(
   // EMPTY QUESTION PROTECTION
   // ==========================================================
 
-  
   if (!text) {
     return {
       entity: null,
@@ -2882,6 +3596,7 @@ export function classifyQuestion(
       requested_field: "unknown",
       search_terms: [],
       question_type: "unknown",
+      date_filter: null,
       confidence: 0,
       method: "deterministic",
     };
@@ -2892,7 +3607,9 @@ export function classifyQuestion(
   // ==========================================================
 
   const field =
-    detectField(text);
+    detectField(
+      text
+    );
 
   // ==========================================================
   // INTENT
@@ -2905,15 +3622,53 @@ export function classifyQuestion(
     );
 
   // ==========================================================
+  // DATE FILTER
+  // ==========================================================
+
+  const dateFilter =
+    detectDateFilter(
+      text
+    );
+
+  console.log(
+    "========== DATE DEBUG =========="
+  );
+
+  console.log({
+    text,
+    dateFilter,
+  });
+
+  // ==========================================================
+  // FINAL INTENT
+  // ==========================================================
+
+  const finalIntent =
+    dateFilter &&
+    intent === "unknown"
+      ? "date_filter"
+      : intent;
+
+  // ==========================================================
   // ENTITY
+  //
+  // IMPORTANT:
+  // Use finalIntent here so date-only questions receive
+  // intent === "date_filter" inside extractEntity().
+  //
+  // Existing domain intents remain unchanged because when
+  // there is no date filter:
+  //
+  // finalIntent === intent
   // ==========================================================
 
   const entity =
-  extractEntity(
-    question,
-    field,
-    intent
-  );
+    extractEntity(
+      question,
+      field,
+      finalIntent
+    );
+
   // ==========================================================
   // LOOKUP VERB
   // ==========================================================
@@ -2931,7 +3686,7 @@ export function classifyQuestion(
   const questionType =
     detectQuestionType(
       text,
-      intent,
+      finalIntent,
       field
     );
 
@@ -2939,41 +3694,41 @@ export function classifyQuestion(
   // EXACT LOOKUP
   // ==========================================================
 
- const naturalAccountNameQuestion =
-  field === "account_name" &&
-  (
-    /\bwhat\s+name\s+is\s+on\b.*\baccount\b/i.test(text) ||
-    /\bname\s+on\b.*\baccount\b/i.test(text) ||
-    /\bwhose\s+name\b.*\baccount\b/i.test(text) ||
-    /\bwho\s+owns\b.*\baccount\b/i.test(text) ||
-    /\bwho\s+is\s+named\s+on\b.*\baccount\b/i.test(text)
-  );
+  const naturalAccountNameQuestion =
+    field === "account_name" &&
+    (
+      /\bwhat\s+name\s+is\s+on\b.*\baccount\b/i.test(text) ||
+      /\bname\s+on\b.*\baccount\b/i.test(text) ||
+      /\bwhose\s+name\b.*\baccount\b/i.test(text) ||
+      /\bwho\s+owns\b.*\baccount\b/i.test(text) ||
+      /\bwho\s+is\s+named\s+on\b.*\baccount\b/i.test(text)
+    );
 
-const transactionExact =
-  intent === "transaction_lookup" &&
-  entity !== null;
+  const transactionExact =
+    finalIntent === "transaction_lookup" &&
+    entity !== null;
 
-const documentExact =
-  intent === "document_lookup" &&
-  entity !== null;
+  const documentExact =
+    finalIntent === "document_lookup" &&
+    entity !== null;
 
-const exact =
-  entity !== null &&
-  (
-    field !== "unknown" ||
-    transactionExact ||
-    documentExact
-  ) &&
-  (
-    hasLookupVerb ||
-    /\bwhat\s+is\b/i.test(text) ||
-    /\bwhat's\b/i.test(text) ||
-    /\bof\b/i.test(text) ||
-    /\bfor\b/i.test(text) ||
-    naturalAccountNameQuestion ||
-    transactionExact ||
-    documentExact
-  );
+  const exact =
+    entity !== null &&
+    (
+      field !== "unknown" ||
+      transactionExact ||
+      documentExact
+    ) &&
+    (
+      hasLookupVerb ||
+      /\bwhat\s+is\b/i.test(text) ||
+      /\bwhat's\b/i.test(text) ||
+      /\bof\b/i.test(text) ||
+      /\bfor\b/i.test(text) ||
+      naturalAccountNameQuestion ||
+      transactionExact ||
+      documentExact
+    );
 
   // ==========================================================
   // SEARCH TERMS
@@ -2993,75 +3748,108 @@ const exact =
   const finalQuestionType =
     exact
       ? "exact_lookup"
-      : questionType;
+      : (
+          finalIntent === "date_filter"
+            ? "exact_lookup"
+            : questionType
+        );
 
   // ==========================================================
   // CONFIDENCE
   // ==========================================================
 
-  let confidence = 0.4;
+  let confidence =
+    0.4;
 
   if (
     exact &&
-    intent !== "unknown" &&
+    finalIntent !== "unknown" &&
     entity
   ) {
-    confidence = 0.99;
+
+    confidence =
+      0.99;
+
   } else if (
-    intent !== "unknown" &&
+    dateFilter &&
+    finalIntent === "date_filter"
+  ) {
+
+    confidence =
+      0.99;
+
+  } else if (
+    finalIntent !== "unknown" &&
     field !== "unknown" &&
     entity
   ) {
-    confidence = 0.97;
+
+    confidence =
+      0.97;
+
   } else if (
-    intent !== "unknown" &&
+    finalIntent !== "unknown" &&
     field !== "unknown"
   ) {
-    confidence = 0.95;
+
+    confidence =
+      0.95;
+
   } else if (
-    intent !== "unknown" &&
+    finalIntent !== "unknown" &&
     entity
   ) {
-    confidence = 0.90;
+
+    confidence =
+      0.90;
+
   } else if (
-    intent !== "unknown"
+    finalIntent !== "unknown"
   ) {
-    confidence = 0.85;
+
+    confidence =
+      0.85;
+
   } else if (
     entity
   ) {
-    confidence = 0.70;
+
+    confidence =
+      0.70;
   }
+
+  // ==========================================================
+  // FINAL DEBUG
+  // ==========================================================
+
+  console.log(
+    "========== CLASSIFIER DEBUG =========="
+  );
+
+  console.log({
+    question: text,
+    entity,
+    intent,
+    finalIntent,
+    field,
+    questionType,
+    finalQuestionType,
+    dateFilter,
+    confidence,
+  });
 
   // ==========================================================
   // RETURN
   // ==========================================================
-console.log("========== PROJECT DEBUG ==========");
-console.log({
-  question:
-  entity,
-  intent,
-  field,
-  questionType: finalQuestionType,
-  confidence,
-});
+
   return {
     entity,
-
-    intent,
-
-    requested_field:
-      field,
-
-    search_terms:
-      searchTerms,
-
-    question_type:
-      finalQuestionType,
-
+    requested_field: field,
+    search_terms: searchTerms,
+    question_type: finalQuestionType,
+    date_filter: dateFilter,
+    intent: finalIntent,
     confidence,
-
-    method:
-      "deterministic",
+    method: "deterministic",
   };
 }

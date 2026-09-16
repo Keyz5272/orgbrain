@@ -128,25 +128,28 @@ console.log({
 });
 
   const deterministicIsStrong =
-  deterministic.intent !== "unknown" &&
+  deterministic.date_filter !== null ||
+
   (
-    deterministic.intent === "general_knowledge" ||
-
+    deterministic.intent !== "unknown" &&
     (
-      deterministic.entity !== null &&
-      (
-        deterministic.requested_field !== "unknown" ||
+      deterministic.intent === "general_knowledge" ||
 
-        deterministic.intent === "account_lookup" ||
-        deterministic.intent === "customer_lookup" ||
-        deterministic.intent === "employee_lookup" ||
-        deterministic.intent === "transaction_lookup" ||
-        deterministic.intent === "document_lookup" ||
-        deterministic.intent === "policy_lookup" ||
-        deterministic.intent === "procedure_lookup" ||
-        deterministic.intent === "decision_lookup" ||
-        deterministic.intent === "project_lookup" ||
-        deterministic.intent === "financial_lookup"
+      (
+        deterministic.entity !== null &&
+        (
+          deterministic.requested_field !== "unknown" ||
+          deterministic.intent === "account_lookup" ||
+          deterministic.intent === "customer_lookup" ||
+          deterministic.intent === "employee_lookup" ||
+          deterministic.intent === "transaction_lookup" ||
+          deterministic.intent === "document_lookup" ||
+          deterministic.intent === "policy_lookup" ||
+          deterministic.intent === "procedure_lookup" ||
+          deterministic.intent === "decision_lookup" ||
+          deterministic.intent === "project_lookup" ||
+          deterministic.intent === "financial_lookup"
+        )
       )
     )
   );
