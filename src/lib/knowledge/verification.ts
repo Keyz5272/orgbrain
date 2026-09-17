@@ -155,6 +155,31 @@ function extractLikelyEntity(
   const normalized =
     normalize(question);
 
+    // =========================================================
+// PRIORITY ACCOUNT ENTITY EXTRACTION
+// Handles:
+// "What is the balance of Josephine Osae's account?"
+// =========================================================
+
+const accountMatch =
+  normalized.match(
+    /\b(?:of|for)\s+(.+?)\s+(?:account|balance|account number|contact|phone|telephone|id)\b/i
+  );
+
+if (accountMatch?.[1]) {
+  const entity =
+    accountMatch[1]
+      .replace(/\s+s$/i, "")
+      .trim();
+
+  if (
+    entity.length >= 3 &&
+    entity.split(/\s+/).length <= 8
+  ) {
+    return entity;
+  }
+}
+
   /*
    * -------------------------------------------------------
    * Pattern:

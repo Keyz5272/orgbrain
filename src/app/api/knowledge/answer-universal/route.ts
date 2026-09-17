@@ -8,6 +8,15 @@ import {
   type EvidenceCandidate,
 } from "@/lib/knowledge/verification";
 
+import {
+  classifyQuestion,
+  type LanguageUnderstanding,
+} from "@/lib/knowledge/language/classifier";
+
+import {
+  createQueryPlan,
+} from "@/lib/knowledge/retrieval/query-planner";
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -35,191 +44,6 @@ type EvidenceForAnswer = {
     endTimestamp: number | null;
   };
 };
-
-/* =========================================================
-   NORMALIZATION
-========================================================= */
-
-function normalize(
-  value: string | null | undefined
-): string {
-  return (value ?? "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/* =========================================================
-   EXACT LOOKUP DETECTION
-========================================================= */
-
-function isExactLookupQuestion(
-  question: string
-): boolean {
-  return /\b(account number|account|balance|available balance|uncleared balance|contact|phone number|telephone|employee id|customer id|open date)\b/i.test(
-    question
-  );
-}
-
-/* =========================================================
-   ENTITY EXTRACTION
-========================================================= */
-
-function extractEntity(
-  question: string
-): string | null {
-  const normalized =
-    normalize(question);
-
-  /*
-   * Example:
-   *
-   * What is the account number of Josephine Osae?
-   *
-   * → josephine osae
-   */
-
-  const ofMatch =
-    normalized.match(
-      /\b(?:of|for)\s+(.+)$/
-    );
-
-  if (ofMatch?.[1]) {
-    const entity =
-      ofMatch[1]
-        .replace(
-          /\b(account|number|balance|available|uncleared|contact|phone|telephone|employee|customer|id|open|date)\b/g,
-          " "
-        )
-        .replace(/\s+/g, " ")
-        .trim();
-
-    if (
-      entity.length >= 3 &&
-      entity.split(/\s+/).length <= 8
-    ) {
-      return entity;
-    }
-  }
-
-  /*
-   * Example:
-   *
-   * What is Josephine Osae's account number?
-   */
-
-  const possessiveMatch =
-    normalized.match(
-      /\bwhat(?:'s| is)\s+(.+?)\s+(?:account number|account|balance|available balance|uncleared balance|contact|phone number|telephone|employee id|customer id|open date)\b/
-    );
-
-  if (possessiveMatch?.[1]) {
-    const entity =
-      possessiveMatch[1]
-        .replace(
-          /\bthe\b/g,
-          " "
-        )
-        .replace(
-          /\s+/g,
-          " "
-        )
-        .trim();
-
-    if (
-      entity.length >= 3 &&
-      entity.split(/\s+/).length <= 8
-    ) {
-      return entity;
-    }
-  }
-
-  return null;
-}
-
-/* =========================================================
-   GET REQUESTED FIELD
-========================================================= */
-
-function getRequestedField(
-  question: string
-): string | null {
-  const normalized =
-    normalize(question);
-
-  if (
-    normalized.includes(
-      "account number"
-    )
-  ) {
-    return "account_number";
-  }
-
-  if (
-    normalized.includes(
-      "available balance"
-    )
-  ) {
-    return "avail_balance";
-  }
-
-  if (
-    normalized.includes(
-      "uncleared balance"
-    )
-  ) {
-    return "un_cleared_balance";
-  }
-
-  if (
-    normalized.includes(
-      "balance"
-    )
-  ) {
-    return "avail_balance";
-  }
-
-  if (
-    normalized.includes(
-      "phone number"
-    ) ||
-    normalized.includes(
-      "telephone"
-    ) ||
-    normalized.includes(
-      "contact"
-    )
-  ) {
-    return "contact";
-  }
-
-  if (
-    normalized.includes(
-      "open date"
-    )
-  ) {
-    return "open_date";
-  }
-
-  if (
-    normalized.includes(
-      "employee id"
-    )
-  ) {
-    return "employee_id";
-  }
-
-  if (
-    normalized.includes(
-      "customer id"
-    )
-  ) {
-    return "customer_id";
-  }
-
-  return null;
-}
 
 /* =========================================================
    BUILD EVIDENCE CONTEXT
@@ -594,7 +418,12 @@ async function findExactStructuredEvidence(
   }
 
   const normalizedEntity =
-    normalize(entity);
+    entity
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   if (!normalizedEntity) {
     return [];
@@ -624,9 +453,18 @@ async function findExactStructuredEvidence(
       const accountName =
         typeof structured.account_name ===
         "string"
-          ? normalize(
-              structured.account_name
-            )
+          ? structured.account_name
+              .normalize("NFKC")
+              .toLowerCase()
+              .replace(
+                /[^\p{L}\p{N}\s]/gu,
+                " "
+              )
+              .replace(
+                /\s+/g,
+                " "
+              )
+              .trim()
           : "";
 
       if (
@@ -643,9 +481,18 @@ async function findExactStructuredEvidence(
       const customerName =
         typeof structured.customer_name ===
         "string"
-          ? normalize(
-              structured.customer_name
-            )
+          ? structured.customer_name
+              .normalize("NFKC")
+              .toLowerCase()
+              .replace(
+                /[^\p{L}\p{N}\s]/gu,
+                " "
+              )
+              .replace(
+                /\s+/g,
+                " "
+              )
+              .trim()
           : "";
 
       if (
@@ -662,9 +509,18 @@ async function findExactStructuredEvidence(
       const employeeName =
         typeof structured.employee_name ===
         "string"
-          ? normalize(
-              structured.employee_name
-            )
+          ? structured.employee_name
+              .normalize("NFKC")
+              .toLowerCase()
+              .replace(
+                /[^\p{L}\p{N}\s]/gu,
+                " "
+              )
+              .replace(
+                /\s+/g,
+                " "
+              )
+              .trim()
           : "";
 
       if (
@@ -685,7 +541,18 @@ async function findExactStructuredEvidence(
         (value) =>
           typeof value ===
             "string" &&
-          normalize(value) ===
+          value
+            .normalize("NFKC")
+            .toLowerCase()
+            .replace(
+              /[^\p{L}\p{N}\s]/gu,
+              " "
+            )
+            .replace(
+              /\s+/g,
+              " "
+            )
+            .trim() ===
             normalizedEntity
       );
     });
@@ -778,6 +645,280 @@ async function findExactStructuredEvidence(
     );
 }
 
+
+/* =========================================================
+   BROAD STRUCTURED RETRIEVAL
+========================================================= */
+
+async function findBroadStructuredEvidence(
+  supabase: Awaited<
+    ReturnType<typeof createClient>
+  >,
+  organizationId: string,
+  dateFilter?: {
+  type: string;
+  value?: string | null;
+} | null
+): Promise<EvidenceCandidate[]> {
+  /*
+   * Retrieve structured organizational rows
+   * without requiring a specific entity.
+   *
+   * Optional date filtering is applied directly
+   * to structured_data.open_date.
+   *
+   * Supabase/PostgREST may return a maximum of
+   * 1000 rows per request, so the data is retrieved
+   * in batches using range().
+   */
+
+  const batchSize = 1000;
+  let from = 0;
+
+  const allRows: Array<{
+    id: string;
+    source_id: string;
+    content_type: string;
+    content: string | null;
+    structured_data: unknown;
+    page_number: number | null;
+    sheet_name: string | null;
+    row_number: number | null;
+    start_timestamp: number | null;
+    end_timestamp: number | null;
+    section: string | null;
+    metadata: unknown;
+  }> = [];
+
+  while (true) {
+    let query = supabase
+      .from("knowledge_content")
+      .select(
+        `
+          id,
+          source_id,
+          content_type,
+          content,
+          structured_data,
+          page_number,
+          sheet_name,
+          row_number,
+          start_timestamp,
+          end_timestamp,
+          section,
+          metadata
+        `
+      )
+      .eq(
+        "organization_id",
+        organizationId
+      )
+      .eq(
+        "content_type",
+        "row"
+      );
+
+    /*
+     * Apply year filtering to the account
+     * open_date stored inside structured_data.
+     *
+     * Example:
+     * 2019-01-01 <= open_date < 2020-01-01
+     */
+    if (
+      dateFilter?.type === "year" &&
+      dateFilter.value &&
+      /^\d{4}$/.test(
+        dateFilter.value
+      )
+    ) {
+      const year =
+        Number(
+          dateFilter.value
+        );
+
+      query = query
+        .gte(
+          "structured_data->>open_date",
+          `${year}-01-01`
+        )
+        .lt(
+          "structured_data->>open_date",
+          `${year + 1}-01-01`
+        );
+
+      console.log(
+        "BROAD STRUCTURED DATE FILTER:",
+        {
+          type:
+            dateFilter.type,
+          year:
+            dateFilter.value,
+          from:
+            `${year}-01-01`,
+          to:
+            `${year + 1}-01-01`,
+        }
+      );
+    }
+
+    const {
+      data,
+      error,
+    } = await query
+      .order(
+        "row_number",
+        {
+          ascending: true,
+        }
+      )
+      .range(
+        from,
+        from + batchSize - 1
+      );
+
+    if (error) {
+      console.error(
+        "BROAD STRUCTURED RETRIEVAL ERROR:",
+        error
+      );
+
+      return [];
+    }
+
+    if (
+      !data ||
+      data.length === 0
+    ) {
+      break;
+    }
+
+    allRows.push(
+      ...data.map((row) => ({
+        id:
+          row.id,
+        source_id:
+          row.source_id,
+        content_type:
+          row.content_type,
+        content:
+          row.content ?? null,
+        structured_data:
+          row.structured_data ?? null,
+        page_number:
+          row.page_number ?? null,
+        sheet_name:
+          row.sheet_name ?? null,
+        row_number:
+          row.row_number ?? null,
+        start_timestamp:
+          row.start_timestamp ??
+          null,
+        end_timestamp:
+          row.end_timestamp ??
+          null,
+        section:
+          row.section ?? null,
+        metadata:
+          row.metadata ?? null,
+      }))
+    );
+
+    console.log(
+      "BROAD STRUCTURED BATCH:",
+      {
+        from,
+        to:
+          from +
+          data.length -
+          1,
+        batchSize:
+          data.length,
+        totalRetrieved:
+          allRows.length,
+        dateFilter:
+          dateFilter ?? null,
+      }
+    );
+
+    if (
+      data.length <
+      batchSize
+    ) {
+      break;
+    }
+
+    from +=
+      batchSize;
+  }
+
+  console.log(
+    "BROAD STRUCTURED TOTAL:",
+    allRows.length,
+    "DATE FILTER:",
+    dateFilter ?? null
+  );
+
+  if (
+    allRows.length === 0
+  ) {
+    return [];
+  }
+
+  return allRows.map(
+    (row) => ({
+      id:
+        row.id,
+      source_id:
+        row.source_id,
+      source_type:
+        "structured_row",
+      filename:
+        null,
+      title:
+        null,
+      content_type:
+        row.content_type,
+      content:
+        row.content ?? null,
+      structured_data:
+        (row.structured_data as
+          | Record<
+              string,
+              unknown
+            >
+          | null) ?? null,
+      page_number:
+        row.page_number ??
+        null,
+      sheet_name:
+        row.sheet_name ??
+        null,
+      row_number:
+        row.row_number ??
+        null,
+      start_timestamp:
+        row.start_timestamp ??
+        null,
+      end_timestamp:
+        row.end_timestamp ??
+        null,
+      section:
+        row.section ??
+        null,
+      metadata:
+        (row.metadata as
+          | Record<
+              string,
+              unknown
+            >
+          | null) ?? null,
+      similarity:
+        1,
+    })
+  );
+}
+
 /* =========================================================
    FIND REQUESTED FIELD VALUE
 ========================================================= */
@@ -793,10 +934,71 @@ function getFieldValue(
     return null;
   }
 
-  return (
-    structured[field] ??
-    null
-  );
+  const fieldAliases: Record<
+    string,
+    string[]
+  > = {
+    available_balance: [
+      "available_balance",
+      "avail_balance",
+      "available balance",
+      "avail balance",
+    ],
+
+    uncleared_balance: [
+      "uncleared_balance",
+      "un_cleared_balance",
+      "uncleared balance",
+      "uncleared amount",
+    ],
+
+    account_number: [
+      "account_number",
+      "account number",
+      "acct_number",
+      "acct_no",
+    ],
+
+    account_name: [
+      "account_name",
+      "account name",
+      "name",
+    ],
+
+    open_date: [
+      "open_date",
+      "open date",
+      "opening_date",
+      "date_opened",
+    ],
+
+    contact: [
+      "contact",
+      "contact_number",
+      "phone",
+      "phone_number",
+      "telephone",
+      "telephone_number",
+      "mobile",
+      "mobile_number",
+    ],
+  };
+
+  const aliases =
+    fieldAliases[field] ?? [field];
+
+  for (const key of aliases) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        structured,
+        key
+      )
+    ) {
+      return structured[key];
+    }
+  }
+
+  return null;
 }
 
 /* =========================================================
@@ -811,6 +1013,13 @@ function buildDirectStructuredAnswer(
   answer: string;
   evidence: EvidenceCandidate[];
 } | null {
+  /*
+   * Keep the question parameter in the function
+   * signature because it remains part of the
+   * structured-answer interface.
+   */
+  void question;
+
   if (
     candidates.length === 0
   ) {
@@ -870,8 +1079,14 @@ function buildDirectStructuredAnswer(
     account_number:
       "account number",
 
+    available_balance:
+      "available balance",
+
     avail_balance:
       "available balance",
+
+    uncleared_balance:
+      "uncleared balance",
 
     un_cleared_balance:
       "uncleared balance",
@@ -913,6 +1128,84 @@ function buildDirectStructuredAnswer(
       `${name}'s ${fieldLabel} is ${value}.`,
 
     evidence: matching,
+  };
+}
+
+/* =========================================================
+  BUILD BROAD STRUCTURED RESULT
+========================================================= */
+
+function buildBroadStructuredResult(
+  question: string,
+  candidates: EvidenceCandidate[],
+  page: number,
+  pageSize: number
+): {
+  answer: string;
+  records: Record<string, unknown>[];
+  totalRecords: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
+} | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const totalRecords =
+    candidates.length;
+
+  const totalPages =
+    Math.ceil(
+      totalRecords / pageSize
+    );
+
+  const safePage =
+    Math.max(
+      1,
+      Math.min(
+        page,
+        totalPages
+      )
+    );
+
+  const start =
+    (safePage - 1) *
+    pageSize;
+
+  const records =
+    candidates
+      .slice(
+        start,
+        start + pageSize
+      )
+      .map(
+        (candidate) =>
+          candidate.structured_data ??
+          {}
+      );
+
+  const end =
+    Math.min(
+      start + pageSize,
+      totalRecords
+    );
+
+  const answer =
+    `There are ${totalRecords} matching structured records. Showing records ${start + 1}–${end}.`;
+
+  void question;
+
+  return {
+    answer,
+    records,
+    totalRecords,
+    page: safePage,
+    pageSize,
+    totalPages,
+    hasMore:
+      safePage < totalPages,
   };
 }
 
@@ -1165,11 +1458,30 @@ export async function POST(
        3. PARSE REQUEST
     ===================================================== */
 
-    let body: AnswerRequest;
+    /*
+     * The normal AnswerRequest interface is extended locally
+     * with pagination properties.
+     *
+     * This allows the Assistant UI to send:
+     *
+     * page: 1
+     * pageSize: 50
+     *
+     * without changing the rest of the AnswerRequest
+     * architecture.
+     */
+
+    type PaginatedAnswerRequest =
+      AnswerRequest & {
+        page?: unknown;
+        pageSize?: unknown;
+      };
+
+    let body: PaginatedAnswerRequest;
 
     try {
       body =
-        await request.json();
+        (await request.json()) as PaginatedAnswerRequest;
     } catch {
       return NextResponse.json(
         {
@@ -1223,61 +1535,247 @@ export async function POST(
       );
 
     /* =====================================================
-       5. DETERMINE QUESTION TYPE
+       4A. PAGINATION
     ===================================================== */
 
-    const exactLookup =
-      isExactLookupQuestion(
-        question
+    /*
+     * Pagination applies primarily to broad structured
+     * dataset queries.
+     *
+     * Defaults:
+     *
+     * page     = 1
+     * pageSize = 50
+     *
+     * pageSize is capped at 100 so that a client cannot
+     * request an unnecessarily large response.
+     */
+
+    const requestedPage =
+      Number.isInteger(
+        Number(body.page)
+      )
+        ? Number(body.page)
+        : 1;
+
+    const page =
+      Math.max(
+        requestedPage,
+        1
       );
 
-    const entity =
-      extractEntity(
-        question
+    const requestedPageSize =
+      Number.isInteger(
+        Number(body.pageSize)
+      )
+        ? Number(body.pageSize)
+        : 50;
+
+    const pageSize =
+      Math.min(
+        Math.max(
+          requestedPageSize,
+          1
+        ),
+        100
       );
 
-    const requestedField =
-      getRequestedField(
-        question
-      );
+    console.log(
+      "REQUEST PAGINATION:",
+      {
+        page,
+        pageSize,
+      }
+    );
 
     /* =====================================================
-       6. EXACT STRUCTURED RETRIEVAL
-       
-       THIS IS THE CRITICAL NEW STEP.
-       
+       5. QUESTION UNDERSTANDING + QUERY PLAN
+    ===================================================== */
+
+    const understanding:
+      LanguageUnderstanding =
+      classifyQuestion(
+        question
+      );
+
+    const queryPlan =
+      createQueryPlan(
+        understanding
+      );
+
+    console.log(
+      "QUESTION UNDERSTANDING:",
+      understanding
+    );
+
+    console.log(
+      "QUERY PLAN:",
+      queryPlan
+    );
+
+    const entity =
+      understanding.entity;
+
+    const requestedField =
+      understanding.requested_field !==
+      "unknown"
+        ? understanding.requested_field
+        : "";
+
+    /* =====================================================
+       6. STRUCTURED RETRIEVAL
+
+       The Query Planner decides whether structured
+       retrieval should be attempted.
+
        For:
-       
+
        "What is the account number of Josephine Osae?"
-       
+
        we search the structured organizational
-       records BEFORE vector retrieval.
+       records BEFORE semantic vector retrieval.
     ===================================================== */
 
     if (
-      exactLookup &&
-      entity
+      queryPlan.structured.enabled
     ) {
       console.log(
-        "EXACT LOOKUP:",
+        "STRUCTURED LOOKUP ENABLED:",
         {
           question,
           entity,
           requestedField,
+          mode:
+            queryPlan.mode,
         }
       );
 
       const structuredEvidence =
-        await findExactStructuredEvidence(
-          supabase,
-          organizationId,
-          entity
-        );
+        entity
+          ? await findExactStructuredEvidence(
+              supabase,
+              organizationId,
+              entity
+            )
+          : await findBroadStructuredEvidence(
+             supabase,
+  organizationId,
+  understanding.date_filter
+            );
 
-      /*
-       * If the requested entity was found,
-       * verify the requested field directly.
-       */
+      /* =====================================================
+         BROAD STRUCTURED RESULT
+
+         Broad structured questions have no specific entity.
+
+         Examples:
+
+         "List all savings accounts"
+
+         "Show me all accounts"
+
+         "What accounts do we have?"
+
+         Do not send the complete dataset through the
+         normal verification pipeline.
+      ===================================================== */
+
+      const isBroadStructuredQuery =
+        !entity &&
+        queryPlan.structured.enabled;
+
+      if (
+        isBroadStructuredQuery &&
+        structuredEvidence.length > 0
+      ) {
+        const broadResult =
+          buildBroadStructuredResult(
+            question,
+            structuredEvidence,
+            page,
+            pageSize
+          );
+
+        if (broadResult) {
+          console.log(
+            "BROAD STRUCTURED RESULT:",
+            {
+              totalRecords:
+                broadResult.totalRecords,
+
+              page:
+                broadResult.page,
+
+              pageSize:
+                broadResult.pageSize,
+
+              totalPages:
+                broadResult.totalPages,
+
+              recordsReturned:
+                broadResult.records.length,
+
+              hasMore:
+                broadResult.hasMore,
+            }
+          );
+
+          return NextResponse.json({
+            success: true,
+
+            question,
+
+            organizationId,
+
+            understanding,
+
+            queryPlan,
+
+            answer:
+              broadResult.answer,
+
+            status:
+              "supported",
+
+            confidence: 1,
+
+            evidenceStrength:
+              "strong",
+
+            totalRecords:
+              broadResult.totalRecords,
+
+            page:
+              broadResult.page,
+
+            pageSize:
+              broadResult.pageSize,
+
+            totalPages:
+              broadResult.totalPages,
+
+            hasMore:
+              broadResult.hasMore,
+
+            records:
+              broadResult.records,
+
+            reason:
+              "The requested broad dataset was retrieved directly from structured organizational records.",
+
+            model:
+              "structured-record-query",
+          });
+        }
+      }
+
+      /* =====================================================
+         SPECIFIC STRUCTURED RECORD
+
+         If the requested entity was found,
+         verify the requested field directly.
+      ===================================================== */
+
       if (
         structuredEvidence.length >
         0
@@ -1333,6 +1831,10 @@ export async function POST(
               question,
 
               organizationId,
+
+              understanding,
+
+              queryPlan,
 
               answer:
                 directAnswer.answer,
@@ -1401,13 +1903,19 @@ export async function POST(
               ?.trim() ??
             "";
 
-          if (answer) {
+          if (
+            answer
+          ) {
             return NextResponse.json({
               success: true,
 
               question,
 
               organizationId,
+
+              understanding,
+
+              queryPlan,
 
               answer,
 
@@ -1443,6 +1951,10 @@ export async function POST(
 
           organizationId,
 
+          understanding,
+
+          queryPlan,
+
           answer:
             "I could not find sufficient organizational evidence to answer this question.",
 
@@ -1458,90 +1970,180 @@ export async function POST(
 
           reason:
             `The entity "${entity}" was found in organizational records, but the requested information could not be verified.`,
+
+          model:
+            "structured-record-lookup",
         });
       }
 
+      console.log(
+        "STRUCTURED LOOKUP FOUND NO RECORD:",
+        {
+          entity,
+          question,
+        }
+      );
+    }
+
+    /* =====================================================
+       7. SEMANTIC RETRIEVAL
+
+       The Query Planner controls whether semantic
+       retrieval should run.
+
+       For structured questions, semantic retrieval
+       is skipped.
+
+       For semantic and hybrid questions, semantic
+       retrieval is enabled according to the Query Planner.
+    ===================================================== */
+
+    const shouldRunSemantic =
+      queryPlan.semantic.enabled;
+
+    console.log(
+      "SEMANTIC RETRIEVAL ENABLED:",
+      shouldRunSemantic
+    );
+
+    let candidates:
+      EvidenceCandidate[] =
+      [];
+
+    if (
+      shouldRunSemantic
+    ) {
       /*
-       * IMPORTANT:
+       * Use the Query Planner's semantic query.
        *
-       * Do not immediately return Unknown.
-       *
-       * The structured data might not contain
-       * this particular record, while another
-       * document could contain it.
-       *
-       * Therefore continue to semantic retrieval.
+       * The first query is the planner's primary
+       * retrieval query. Fall back to the original
+       * question if no planner query exists.
        */
-    }
+      const semanticQuery =
+        queryPlan.semantic.queries[0] ||
+        question;
 
-    /* =====================================================
-       7. CREATE QUESTION EMBEDDING
-       
-       This is now the FALLBACK path for exact
-       lookups and the PRIMARY path for general
-       knowledge questions.
-    ===================================================== */
+      console.log(
+        "SEMANTIC QUERY:",
+        semanticQuery
+      );
 
-    const embeddingResponse =
-      await openai.embeddings.create(
+      /*
+       * Generate the embedding for the planner
+       * query rather than always embedding the
+       * raw user question.
+       */
+      const embeddingResponse =
+        await openai.embeddings.create(
+          {
+            model:
+              EMBEDDING_MODEL,
+
+            input:
+              semanticQuery,
+          }
+        );
+
+      const queryEmbedding =
+        embeddingResponse
+          .data[0]
+          ?.embedding;
+
+      if (
+        !queryEmbedding
+      ) {
+        throw new Error(
+          "Failed to create question embedding."
+        );
+      }
+
+      /*
+       * Respect both:
+       *
+       * 1. the request limit
+       * 2. the Query Planner limit
+       *
+       * This prevents the planner from accidentally
+       * exceeding the API-level requested limit.
+       */
+      const semanticLimit =
+        Math.min(
+          limit,
+          queryPlan.limit
+        );
+
+      console.log(
+        "SEMANTIC LIMIT:",
+        semanticLimit
+      );
+
+      /* =================================================
+         8. SEMANTIC VECTOR RETRIEVAL
+      ================================================= */
+
+      const {
+        data: results,
+        error:
+          retrievalError,
+      } =
+        await supabase.rpc(
+          "match_knowledge_content",
+          {
+            query_embedding:
+              queryEmbedding,
+
+            match_count:
+              semanticLimit,
+
+            match_organization_id:
+              organizationId,
+
+            match_source_type:
+              null,
+
+            match_content_type:
+              null,
+          }
+        );
+
+      if (
+        retrievalError
+      ) {
+        throw new Error(
+          `Knowledge retrieval failed: ${retrievalError.message}`
+        );
+      }
+
+      candidates =
+        (results ??
+          []) as EvidenceCandidate[];
+
+      console.log(
+        "SEMANTIC RETRIEVAL RESULTS:",
         {
-          model:
-            EMBEDDING_MODEL,
+          count:
+            candidates.length,
 
-          input:
-            question,
+          query:
+            semanticQuery,
+
+          limit:
+            semanticLimit,
         }
       );
-
-    const queryEmbedding =
-      embeddingResponse
-        .data[0]
-        ?.embedding;
-
-    if (!queryEmbedding) {
-      throw new Error(
-        "Failed to create question embedding."
-      );
-    }
-
-    /* =====================================================
-       8. SEMANTIC RETRIEVAL
-    ===================================================== */
-
-    const {
-      data: results,
-      error:
-        retrievalError,
-    } =
-      await supabase.rpc(
-        "match_knowledge_content",
+    } else {
+      console.log(
+        "SEMANTIC RETRIEVAL SKIPPED:",
         {
-          query_embedding:
-            queryEmbedding,
+          reason:
+            "Query Planner determined that semantic retrieval is not required.",
 
-          match_count:
-            limit,
-
-          match_organization_id:
-            organizationId,
-
-          match_source_type:
-            null,
-
-          match_content_type:
-            null,
+          mode:
+            queryPlan.mode,
         }
       );
-
-    if (retrievalError) {
-      throw new Error(
-        `Knowledge retrieval failed: ${retrievalError.message}`
-      );
     }
-
-    const candidates =
-      (results ??
-        []) as EvidenceCandidate[];
 
     /* =====================================================
        9. NO SEMANTIC RESULTS
@@ -1557,6 +2159,10 @@ export async function POST(
 
         organizationId,
 
+        understanding,
+
+        queryPlan,
+
         answer:
           "I could not find sufficient organizational evidence to answer this question.",
 
@@ -1571,7 +2177,9 @@ export async function POST(
         evidence: [],
 
         reason:
-          "No organizational evidence was retrieved.",
+          shouldRunSemantic
+            ? "No organizational evidence was retrieved."
+            : "The Query Planner determined that no additional semantic retrieval was required.",
       });
     }
 
@@ -1619,6 +2227,10 @@ export async function POST(
         question,
 
         organizationId,
+
+        understanding,
+
+        queryPlan,
 
         answer:
           "I could not find sufficient organizational evidence to answer this question.",
@@ -1672,7 +2284,9 @@ export async function POST(
         ?.trim() ??
       "";
 
-    if (!answer) {
+    if (
+      !answer
+    ) {
       throw new Error(
         "The answer model returned an empty response."
       );
@@ -1688,6 +2302,10 @@ export async function POST(
       question,
 
       organizationId,
+
+      understanding,
+
+      queryPlan,
 
       answer,
 

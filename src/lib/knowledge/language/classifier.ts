@@ -1331,6 +1331,107 @@ function extractEntity(
   }
 
   // ==========================================================
+  // BROAD ACCOUNT QUESTIONS HAVE NO ENTITY
+  //
+  // Examples:
+  // - Tell me about the accounts in the organization
+  // - Show me the accounts in the organization
+  // - What accounts do we have?
+  // - List all accounts
+  // - Show me all savings accounts
+  // - Tell me about the accounts
+  // ==========================================================
+
+  if (
+    intent === "account_lookup"
+  ) {
+
+    const broadDateFilteredAccountQuestion =
+    /^(?:list|show|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|what\s+are)\s+(?:all\s+|the\s+)?(?:accounts?|savings\s+accounts?)\s+(?:opened|created|registered)\s+(?:in|during)\s+\d{4}[.!]?$/i.test(
+      value
+    );
+
+  if (broadDateFilteredAccountQuestion) {
+    console.log(
+      "BROAD DATE-FILTERED ACCOUNT QUESTION: NO ENTITY"
+    );
+
+    return null;
+  }
+  
+   const broadAccountQuestion =
+  /^(?:what\s+are|show\s+me|list|give\s+me|provide)\s+(?:the\s+)?account\s+numbers?\s+and\s+(?:the\s+)?(?:balances?|available\s+balances?)[.!]?$/i.test(
+    value
+  ) ||
+  /^(?:show|list|give\s+me|provide)\s+(?:the\s+)?account\s+numbers?\s*(?:,|and)\s+(?:the\s+)?(?:balances?|available\s+balances?)[.!]?$/i.test(
+    value
+  ) ||
+  /^(?:tell\s+me\s+about|show\s+me|show|list|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me|what\s+are|what\s+is)\s+(?:all\s+)?(?:the\s+)?(?:accounts?|savings\s+accounts?|account\s+details|account\s+information|account\s+records)(?:\s+(?:in|within|across)\s+(?:the\s+)?(?:organization|company|business))?[.!]?$/i.test(
+    value
+  ) ||
+  /^(?:what\s+)?(?:accounts?|savings\s+accounts?)\s+(?:do\s+we\s+have|do\s+you\s+have)[.!]?$/i.test(
+    value
+  ) ||
+  /^(?:tell\s+me\s+about|show\s+me|show|list|find|get|retrieve|lookup|look\s+up|fetch|provide|give\s+me)\s+(?:all|every)\s+(?:the\s+)?(?:accounts?|savings\s+accounts?)[.!]?$/i.test(
+    value
+  );
+
+    if (
+      broadAccountQuestion
+    ) {
+      console.log(
+        "BROAD ACCOUNT QUESTION: NO ENTITY"
+      );
+
+      return null;
+    }
+  }
+
+  // ==========================================================
+  // PRIORITY ACCOUNT ENTITY EXTRACTION
+  //
+  // Handles:
+  // "What is the balance of Josephine Osae's account?"
+  // ==========================================================
+
+  if (
+    intent === "account_lookup"
+  ) {
+
+    const accountQuestionMatch =
+      value.match(
+        /^(?:what\s+is|what's|what\s+are|show\s+me|tell\s+me|give\s+me)\s+(?:the\s+)?(?:available\s+balance|current\s+balance|balance|uncleared\s+balance|account\s+number|open\s+date)\s+of\s+(.+?)['’]s\s+account$/i
+      );
+
+    console.log(
+      "PRIORITY ACCOUNT MATCH:",
+      accountQuestionMatch?.[1]
+    );
+
+    if (
+      accountQuestionMatch?.[1]
+    ) {
+
+      const entity =
+        normalizeEntity(
+          accountQuestionMatch[1].trim()
+        );
+
+      console.log(
+        "PRIORITY ACCOUNT ENTITY:",
+        entity
+      );
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return entity;
+      }
+    }
+  }
+
+  // ==========================================================
   // GENERAL ORGANIZATIONAL QUESTIONS WITHOUT AN ENTITY
   // ==========================================================
 
@@ -1343,54 +1444,83 @@ function extractEntity(
       // ORGANIZATION
 
       /^what\s+do\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
+
       /^tell\s+me\s+about\s+(?:the\s+)?organization$/i,
+
       /^what\s+information\s+do\s+we\s+have\s+about\s+(?:the\s+)?organization$/i,
+
       /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?company$/i,
+
       /^tell\s+me\s+what\s+is\s+known\s+about\s+(?:the\s+)?organization$/i,
+
       /^what\s+do\s+we\s+currently\s+know\s+about\s+(?:the\s+)?organization$/i,
+
       /^what\s+information\s+has\s+been\s+captured\s+about\s+(?:the\s+)?organization$/i,
 
       // COMPANY
 
       /^what\s+do\s+we\s+know\s+about\s+our\s+company$/i,
+
       /^what\s+information\s+do\s+we\s+have\s+about\s+our\s+company$/i,
+
       /^what\s+company\s+information\s+is\s+available$/i,
+
       /^what\s+company\s+knowledge\s+is\s+available$/i,
+
       /^what\s+knowledge\s+has\s+been\s+captured\s+about\s+our\s+company$/i,
 
       // ORGANIZATIONAL KNOWLEDGE
 
       /^what\s+knowledge\s+is\s+available\s+in\s+(?:the\s+)?organization$/i,
+
       /^what\s+organizational\s+information\s+do\s+we\s+have$/i,
+
       /^what\s+organizational\s+knowledge\s+is\s+available$/i,
+
       /^what\s+information\s+is\s+available\s+across\s+(?:the\s+)?organization$/i,
 
       // ORGBRAIN
 
       /^what\s+information\s+is\s+stored\s+in\s+orgbrain$/i,
+
       /^what\s+knowledge\s+is\s+available\s+in\s+orgbrain$/i,
+
       /^what\s+knowledge\s+is\s+in\s+orgbrain$/i,
+
       /^what\s+information\s+is\s+in\s+orgbrain$/i,
+
       /^what\s+does\s+orgbrain\s+know$/i,
+
       /^what\s+does\s+orgbrain\s+know\s+about\s+(?:the\s+)?organization$/i,
+
       /^what\s+does\s+orgbrain\s+know\s+about\s+our\s+organization$/i,
+
       /^what\s+does\s+orgbrain\s+know\s+about\s+the\s+company$/i,
+
       /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+(?:the\s+)?organization$/i,
+
       /^what\s+can\s+orgbrain\s+tell\s+me\s+about\s+our\s+organization$/i,
+
       /^what\s+can\s+i\s+learn\s+about\s+(?:the\s+)?organization\s+from\s+orgbrain$/i,
 
       // OVERVIEW
 
       /^give\s+me\s+an?\s+overview\s+of\s+(?:the\s+)?organization$/i,
+
       /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+(?:the\s+)?organization$/i,
+
       /^give\s+me\s+(?:a\s+)?general\s+overview\s+of\s+our\s+company$/i,
+
       /^give\s+me\s+an?\s+overview\s+of\s+the\s+knowledge\s+in\s+orgbrain$/i,
 
       // SUMMARY
 
       /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know\s+about\s+(?:the\s+)?organization$/i,
+
       /^give\s+me\s+a\s+summary\s+of\s+our\s+organizational\s+knowledge$/i,
+
       /^give\s+me\s+a\s+general\s+summary\s+of\s+what\s+orgbrain\s+knows$/i,
+
       /^give\s+me\s+a\s+summary\s+of\s+what\s+we\s+know$/i,
     ];
 
@@ -1404,6 +1534,7 @@ function extractEntity(
     }
 
     const broadGeneralStructurePatterns = [
+
       /^show\s+me\s+what\s+we\s+know\s+about\s+(?:the\s+)?(?:company|organization)$/i,
 
       /^give\s+me\s+(?:an?\s+)?overview\s+of\s+(?:the\s+)?(?:company|organization)$/i,
@@ -1436,7 +1567,10 @@ function extractEntity(
         /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1457,7 +1591,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+record\s+for\s+(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1478,7 +1615,10 @@ function extractEntity(
         /^give\s+me\s+(?:the\s+)?policy\s+information\s+for\s+(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1499,7 +1639,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?policy\s+for\s+(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1520,7 +1663,10 @@ function extractEntity(
         /^tell\s+me\s+(?:the\s+)?(.+?)\s+policy\s+(?:details?|records?|information)$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1541,7 +1687,10 @@ function extractEntity(
         /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1562,7 +1711,10 @@ function extractEntity(
         /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+policy(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1583,7 +1735,10 @@ function extractEntity(
         /^what\s+policy\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1604,7 +1759,10 @@ function extractEntity(
         /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+policy$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1634,7 +1792,10 @@ function extractEntity(
         /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1655,7 +1816,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+record\s+for\s+(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1676,7 +1840,10 @@ function extractEntity(
         /^give\s+me\s+(?:the\s+)?procedure\s+information\s+for\s+(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1697,7 +1864,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?procedure\s+for\s+(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1718,7 +1888,10 @@ function extractEntity(
         /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1739,7 +1912,10 @@ function extractEntity(
         /^tell\s+me\s+(?:the\s+)?(.+?)\s+procedure\s+(?:details?|records?|information)$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1760,7 +1936,10 @@ function extractEntity(
         /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+procedure(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1781,7 +1960,10 @@ function extractEntity(
         /^what\s+procedure\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1802,7 +1984,10 @@ function extractEntity(
         /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+procedure$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1832,7 +2017,10 @@ function extractEntity(
         /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1853,7 +2041,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+record\s+for\s+(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1874,7 +2065,10 @@ function extractEntity(
         /^give\s+me\s+(?:the\s+)?decision\s+information\s+for\s+(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1895,7 +2089,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?decision\s+for\s+(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1916,7 +2113,10 @@ function extractEntity(
         /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1937,7 +2137,10 @@ function extractEntity(
         /^tell\s+me\s+(?:the\s+)?(.+?)\s+decision\s+(?:details?|records?|information)$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1958,7 +2161,10 @@ function extractEntity(
         /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+decision(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -1979,7 +2185,10 @@ function extractEntity(
         /^what\s+decision\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2000,7 +2209,10 @@ function extractEntity(
         /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+decision$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2025,23 +2237,15 @@ function extractEntity(
     intent === "project_lookup"
   ) {
 
-    console.log(
-      "========== PROJECT ENTITY BLOCK =========="
-    );
-
-    console.log({
-      originalQuestion,
-      value,
-      intent,
-      field,
-    });
-
     let match =
       value.match(
         /^tell\s+me\s+about\s+(?:the\s+)?(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2062,7 +2266,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2083,7 +2290,10 @@ function extractEntity(
         /^tell\s+me\s+(?:the\s+)?(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2104,7 +2314,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+record\s+for\s+(.+?)$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1].replace(
@@ -2128,7 +2341,10 @@ function extractEntity(
         /^give\s+me\s+(?:the\s+)?project\s+information\s+for\s+(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2149,7 +2365,10 @@ function extractEntity(
         /^(?:find|show\s+me|show)\s+(?:the\s+)?project\s+for\s+(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2170,7 +2389,10 @@ function extractEntity(
         /^(?:find|get|show\s+me|show|retrieve|lookup|look\s+up|fetch|provide|give\s+me|check|what\s+is|what\s+are)\s+(?:the\s+)?(?:company's\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2191,7 +2413,10 @@ function extractEntity(
         /^tell\s+me\s+(?:the\s+)?(.+?)\s+project\s+(?:details?|records?|information)$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2212,7 +2437,10 @@ function extractEntity(
         /^(?:i\s+need|i\s+want|i\s+would\s+like)\s+(?:the\s+)?(.+?)\s+project(?:\s+(?:details?|records?|information))?$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2233,7 +2461,10 @@ function extractEntity(
         /^what\s+project\s+information\s+do\s+we\s+have\s+for\s+(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2254,7 +2485,10 @@ function extractEntity(
         /^what\s+information\s+do\s+we\s+have\s+(?:on|for)\s+(.+?)\s+project$/i
       );
 
-    if (match?.[1]) {
+    if (
+      match?.[1]
+    ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2286,12 +2520,15 @@ function extractEntity(
         value
       )
     ) {
+
       const match =
         value.match(
           /^tell\s+me\s+about\s+(.+?)['’]s\s+transactions?$/i
         );
 
-      if (match?.[1]) {
+      if (
+        match?.[1]
+      ) {
         return normalizeEntity(
           match[1].trim()
         );
@@ -2305,12 +2542,15 @@ function extractEntity(
         value
       )
     ) {
+
       const match =
         value.match(
           /^what\s+information\s+do\s+we\s+have\s+on\s+(.+?)['’]s\s+transactions?$/i
         );
 
-      if (match?.[1]) {
+      if (
+        match?.[1]
+      ) {
         return normalizeEntity(
           match[1].trim()
         );
@@ -2324,12 +2564,15 @@ function extractEntity(
         value
       )
     ) {
+
       const match =
         value.match(
           /^(?:give\s+me|show\s+me|tell\s+me|get|find|retrieve|i\s+need|i\s+want|i\s+would\s+like)\s+(.+?)['’]s\s+transaction\s+(?:record|details?)?$/i
         );
 
-      if (match?.[1]) {
+      if (
+        match?.[1]
+      ) {
         return normalizeEntity(
           match[1].trim()
         );
@@ -2346,6 +2589,7 @@ function extractEntity(
     if (
       entityFirstMatch?.[1]
     ) {
+
       const entity =
         entityFirstMatch[1].trim();
 
@@ -2369,6 +2613,7 @@ function extractEntity(
     if (
       entityLastMatch?.[1]
     ) {
+
       const entity =
         entityLastMatch[1].trim();
 
@@ -2392,6 +2637,7 @@ function extractEntity(
     if (
       transactionInfoMatch?.[1]
     ) {
+
       const entity =
         transactionInfoMatch[1].trim();
 
@@ -2415,6 +2661,7 @@ function extractEntity(
     if (
       possessiveMatch?.[1]
     ) {
+
       const entity =
         possessiveMatch[1].trim();
 
@@ -2438,6 +2685,7 @@ function extractEntity(
     if (
       aboutMatch?.[1]
     ) {
+
       const entity =
         aboutMatch[1].trim();
 
@@ -2468,6 +2716,7 @@ function extractEntity(
     if (
       tellAboutDocumentMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2493,6 +2742,7 @@ function extractEntity(
     if (
       entityFirstMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2518,6 +2768,7 @@ function extractEntity(
     if (
       entityLastMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2543,6 +2794,7 @@ function extractEntity(
     if (
       documentInfoMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2568,6 +2820,7 @@ function extractEntity(
     if (
       informationMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2593,6 +2846,7 @@ function extractEntity(
     if (
       aboutDocumentMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2618,6 +2872,7 @@ function extractEntity(
     if (
       simpleAboutMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2643,6 +2898,7 @@ function extractEntity(
     if (
       needDocumentMatch?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           cleanDomainEntity(
@@ -2677,6 +2933,7 @@ function extractEntity(
     if (
       match?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2700,6 +2957,7 @@ function extractEntity(
     if (
       match?.[1]
     ) {
+
       const entity =
         cleanExtractedEntity(
           match[1]
@@ -2772,6 +3030,7 @@ function extractEntity(
   ) {
 
     const openingDatePatterns = [
+
       /^(?:when\s+was)\s+(.+?)\s+(?:account\s+)?opened$/i,
 
       /^(?:when\s+did)\s+(.+?)\s+open\s+(?:the\s+)?account$/i,
@@ -2828,6 +3087,7 @@ function extractEntity(
         .trim();
 
     const accountNamePatterns = [
+
       /^(?:the\s+)?name\s+on\s+(.+?)['’]s\s+account$/i,
 
       /^what\s+name\s+is\s+on\s+(.+?)['’]s\s+account$/i,
@@ -3140,7 +3400,41 @@ function extractEntity(
       }
     }
 
-    // 7. ENTITY'S SAVINGS ACCOUNT
+    // 7. BALANCE / FIELD OF ENTITY'S ACCOUNT
+
+    match =
+      value.match(
+        /^(?:what\s+is|what's|what\s+are|show\s+me|tell\s+me|give\s+me)\s+(?:the\s+)?(?:available\s+balance|current\s+balance|balance|uncleared\s+balance|account\s+number|open\s+date)\s+of\s+(.+?)(?:['’]s)?\s+account$/i
+      );
+
+    if (
+      match?.[1]
+    ) {
+
+      let entity =
+        cleanExtractedEntity(
+          match[1]
+        );
+
+      entity =
+        entity
+          .replace(
+            /\s+s$/i,
+            ""
+          )
+          .trim();
+
+      if (
+        entity &&
+        isValidEntity(entity)
+      ) {
+        return normalizeEntity(
+          entity
+        );
+      }
+    }
+
+    // 8. ENTITY'S SAVINGS ACCOUNT
 
     match =
       value.match(
@@ -3166,7 +3460,7 @@ function extractEntity(
       }
     }
 
-    // 8. ENTITY'S ACCOUNT DETAILS / INFORMATION
+    // 9. ENTITY'S ACCOUNT DETAILS / INFORMATION
 
     match =
       value.match(
@@ -3192,7 +3486,7 @@ function extractEntity(
       }
     }
 
-    // 9. ACCOUNT BELONGS TO ENTITY
+    // 10. ACCOUNT BELONGS TO ENTITY
 
     match =
       value.match(
@@ -3218,7 +3512,7 @@ function extractEntity(
       }
     }
 
-    // 10. WHICH ACCOUNT DOES ENTITY HAVE?
+    // 11. WHICH ACCOUNT DOES ENTITY HAVE?
 
     match =
       value.match(
@@ -3244,7 +3538,7 @@ function extractEntity(
       }
     }
 
-    // 11. SAVINGS DEPOSIT BELONGING TO ENTITY
+    // 12. SAVINGS DEPOSIT BELONGING TO ENTITY
 
     match =
       value.match(
@@ -3272,7 +3566,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 2. REMOVE POLITE PREFIXES
+  // REMOVE POLITE PREFIXES
   // ==========================================================
 
   value =
@@ -3292,7 +3586,7 @@ function extractEntity(
       .trim();
 
   // ==========================================================
-  // 3. COMPOUND / DIRECT LOOKUP VERBS
+  // COMPOUND / DIRECT LOOKUP VERBS
   // ==========================================================
 
   const compoundLookupPrefix =
@@ -3332,7 +3626,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 4. SINGLE LOOKUP VERBS
+  // SINGLE LOOKUP VERBS
   // ==========================================================
 
   const lookupPrefix =
@@ -3380,7 +3674,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 5. POSSESSIVE QUESTION
+  // POSSESSIVE QUESTION
   // ==========================================================
 
   const possessiveRegex =
@@ -3411,7 +3705,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 6. SIMPLE ENTITY + FIELD
+  // SIMPLE ENTITY + FIELD
   // ==========================================================
 
   let entityWithField =
@@ -3444,7 +3738,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 7. WHAT IS ENTITY FIELD
+  // WHAT IS ENTITY FIELD
   // ==========================================================
 
   const whatIsMatch =
@@ -3481,7 +3775,7 @@ function extractEntity(
   }
 
   // ==========================================================
-  // 8. REMOVE COMMON QUESTION PREFIXES
+  // REMOVE COMMON QUESTION PREFIXES
   // ==========================================================
 
   value =
@@ -3493,7 +3787,7 @@ function extractEntity(
       .trim();
 
   // ==========================================================
-  // 9. REMOVE FIELD
+  // REMOVE FIELD
   // ==========================================================
 
   value =
@@ -3509,7 +3803,7 @@ function extractEntity(
     );
 
   // ==========================================================
-  // 10. REMOVE ARTICLES
+  // REMOVE ARTICLES
   // ==========================================================
 
   value =
@@ -3521,7 +3815,7 @@ function extractEntity(
       .trim();
 
   // ==========================================================
-  // 11. REMOVE TRAILING POSSESSIVE
+  // REMOVE TRAILING POSSESSIVE
   // ==========================================================
 
   value =
@@ -3533,15 +3827,19 @@ function extractEntity(
       .trim();
 
   // ==========================================================
-  // 12. VALIDATE
+  // VALIDATE
   // ==========================================================
 
-  if (!value) {
+  if (
+    !value
+  ) {
     return null;
   }
 
   const normalized =
-    normalizeEntity(value);
+    normalizeEntity(
+      value
+    );
 
   if (
     !isValidEntity(

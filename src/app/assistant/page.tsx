@@ -1,5 +1,5 @@
 "use client";
-
+import * as XLSX from "xlsx";
 import { FormEvent, useMemo, useState } from "react";
 import {
   HiOutlineSparkles,
@@ -15,7 +15,10 @@ import {
   HiOutlineSearch,
 } from "react-icons/hi";
 
-type AnswerStatus = "supported" | "inferred" | "unknown";
+type AnswerStatus =
+  | "supported"
+  | "inferred"
+  | "unknown";
 
 type Citation = {
   filename: string | null;
@@ -50,6 +53,9 @@ type Evidence = {
   citation: Citation;
 };
 
+type StructuredRecord =
+  Record<string, unknown>;
+
 type AnswerResponse = {
   success: boolean;
   answer: string;
@@ -57,9 +63,18 @@ type AnswerResponse = {
   confidence: number;
   evidenceStrength?: string;
   evidence: Evidence[];
+
   reason?: string;
   model?: string;
   error?: string;
+
+  // Broad structured result
+  totalRecords?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  hasMore?: boolean;
+  records?: StructuredRecord[];
 };
 
 const EXAMPLE_QUESTIONS = [
@@ -86,35 +101,207 @@ const FIELD_LABELS: Record<string, string> = {
   action: "Action",
 };
 
-function formatConfidence(value: number) {
-  const percentage = value <= 1 ? value * 100 : value;
+const exportStructuredRecords = (
+  recordsToExport: Record<string, unknown>[],
+  filename: string
+) => {
+  if (!recordsToExport.length) {
+    return;
+  }
 
-  if (percentage >= 90) return `${percentage.toFixed(0)}%`;
-  if (percentage >= 70) return `${percentage.toFixed(0)}%`;
+  const worksheet =
+    XLSX.utils.json_to_sheet(
+      recordsToExport
+    );
+
+  const workbook =
+    XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    worksheet,
+    "OrgBrain Results"
+  );
+
+  XLSX.writeFile(
+    workbook,
+    `${filename}.xlsx`
+  );
+};
+const exportAllStructuredRecords = async (
+  exportQuestion: string
+) => {
+  const query =
+    exportQuestion.trim();
+
+  if (!query) {
+    return;
+  }
+
+  try {
+    const allRecords: Record<
+      string,
+      unknown
+    >[] = [];
+
+    const firstResponse =
+      await fetch(
+        "/api/knowledge/answer-universal",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            question: query,
+            limit: 10,
+            page: 1,
+            pageSize: 100,
+          }),
+        }
+      );
+
+    if (!firstResponse.ok) {
+      throw new Error(
+        "Failed to retrieve structured records."
+      );
+    }
+
+    const firstData =
+      await firstResponse.json();
+
+    if (
+      !Array.isArray(
+        firstData?.records
+      )
+    ) {
+      throw new Error(
+        "No structured records were returned."
+      );
+    }
+
+    allRecords.push(
+      ...firstData.records
+    );
+
+    const totalPages =
+      Number(
+        firstData.totalPages
+      ) || 1;
+
+    for (
+      let page = 2;
+      page <= totalPages;
+      page++
+    ) {
+      const response =
+        await fetch(
+          "/api/knowledge/answer-universal",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              question: query,
+              limit: 10,
+              page,
+              pageSize: 100,
+            }),
+          }
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to retrieve page ${page}.`
+        );
+      }
+
+      const data =
+        await response.json();
+
+      if (
+        Array.isArray(
+          data?.records
+        )
+      ) {
+        allRecords.push(
+          ...data.records
+        );
+      }
+    }
+
+    console.log(
+      "EXPORT ALL STRUCTURED RECORDS:",
+      {
+        totalRecords:
+          allRecords.length,
+        expected:
+          firstData.totalRecords,
+      }
+    );
+
+    exportStructuredRecords(
+      allRecords,
+      "orgbrain-all-results"
+    );
+  } catch (error) {
+    console.error(
+      "EXPORT ALL STRUCTURED RECORDS ERROR:",
+      error
+    );
+  }
+};
+function formatConfidence(value: number) {
+  const percentage =
+    value <= 1
+      ? value * 100
+      : value;
+
   return `${percentage.toFixed(0)}%`;
 }
 
 function getConfidenceLabel(value: number) {
-  const percentage = value <= 1 ? value * 100 : value;
+  const percentage =
+    value <= 1
+      ? value * 100
+      : value;
 
-  if (percentage >= 90) return "Very High";
-  if (percentage >= 75) return "High";
-  if (percentage >= 60) return "Moderate";
-  if (percentage > 0) return "Low";
+  if (percentage >= 90)
+    return "Very High";
+
+  if (percentage >= 75)
+    return "High";
+
+  if (percentage >= 60)
+    return "Moderate";
+
+  if (percentage > 0)
+    return "Low";
 
   return "None";
 }
 
-function normalizeStatus(status?: string): AnswerStatus {
-  const value = String(status || "").toLowerCase();
+function normalizeStatus(
+  status?: string
+): AnswerStatus {
+  const value =
+    String(status || "").toLowerCase();
 
-  if (value === "supported") return "supported";
-  if (value === "inferred") return "inferred";
+  if (value === "supported")
+    return "supported";
+
+  if (value === "inferred")
+    return "inferred";
 
   return "unknown";
 }
 
-function getStatusConfig(status: AnswerStatus) {
+function getStatusConfig(
+  status: AnswerStatus
+) {
   switch (status) {
     case "supported":
       return {
@@ -142,15 +329,22 @@ function getStatusConfig(status: AnswerStatus) {
   }
 }
 
-function getSourceTypeLabel(sourceType?: string) {
-  if (!sourceType) return "Source";
+function getSourceTypeLabel(
+  sourceType?: string
+) {
+  if (!sourceType)
+    return "Source";
 
   return sourceType
     .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    );
 }
 
-function getContentTypeIcon(contentType?: string) {
+function getContentTypeIcon(
+  contentType?: string
+) {
   if (
     contentType === "row" ||
     contentType === "cell" ||
@@ -162,30 +356,69 @@ function getContentTypeIcon(contentType?: string) {
   return HiOutlineDocumentText;
 }
 
-function formatTimestamp(value: number | null | undefined) {
-  if (value === null || value === undefined) return null;
-
-  const totalSeconds = Math.round(value);
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
-      seconds
-    ).padStart(2, "0")}`;
+function formatTimestamp(
+  value: number | null | undefined
+) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
   }
 
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const totalSeconds =
+    Math.round(value);
+
+  const hours = Math.floor(
+    totalSeconds / 3600
+  );
+
+  const minutes = Math.floor(
+    (totalSeconds % 3600) / 60
+  );
+
+  const seconds =
+    totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(
+      minutes
+    ).padStart(
+      2,
+      "0"
+    )}:${String(
+      seconds
+    ).padStart(
+      2,
+      "0"
+    )}`;
+  }
+
+  return `${minutes}:${String(
+    seconds
+  ).padStart(
+    2,
+    "0"
+  )}`;
 }
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
+function formatValue(
+  value: unknown
+): string {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
 
-  if (typeof value === "object") {
+  if (
+    typeof value === "object"
+  ) {
     try {
-      return JSON.stringify(value);
+      return JSON.stringify(
+        value
+      );
     } catch {
       return String(value);
     }
@@ -195,9 +428,13 @@ function formatValue(value: unknown): string {
 }
 
 function getStructuredEntries(
-  data: Record<string, unknown> | null | undefined
+  data:
+    | Record<string, unknown>
+    | null
+    | undefined
 ) {
-  if (!data) return [];
+  if (!data)
+    return [];
 
   return Object.entries(data).filter(
     ([key, value]) =>
@@ -208,15 +445,23 @@ function getStructuredEntries(
   );
 }
 
-function getSourceLocation(evidence: Evidence) {
-  const { citation } = evidence;
+function getSourceLocation(
+  evidence: Evidence
+) {
+  const {
+    citation,
+  } = evidence;
 
-  if (citation.page !== null) {
+  if (
+    citation.page !== null
+  ) {
     return `Page ${citation.page}`;
   }
 
   if (citation.sheet) {
-    if (citation.row !== null) {
+    if (
+      citation.row !== null
+    ) {
       return `${citation.sheet} · Row ${citation.row}`;
     }
 
@@ -224,18 +469,29 @@ function getSourceLocation(evidence: Evidence) {
   }
 
   if (
-    citation.startTimestamp !== null &&
-    citation.endTimestamp !== null
+    citation.startTimestamp !==
+      null &&
+    citation.endTimestamp !==
+      null
   ) {
-    const start = formatTimestamp(citation.startTimestamp);
-    const end = formatTimestamp(citation.endTimestamp);
+    const start =
+      formatTimestamp(
+        citation.startTimestamp
+      );
+
+    const end =
+      formatTimestamp(
+        citation.endTimestamp
+      );
 
     if (start && end) {
       return `${start} – ${end}`;
     }
   }
 
-  if (citation.row !== null) {
+  if (
+    citation.row !== null
+  ) {
     return `Row ${citation.row}`;
   }
 
@@ -243,72 +499,247 @@ function getSourceLocation(evidence: Evidence) {
 }
 
 export default function AssistantPage() {
-  const [question, setQuestion] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [response, setResponse] =
-    useState<AnswerResponse | null>(null);
-  const [error, setError] = useState("");
-  const [showEvidence, setShowEvidence] = useState(true);
-  const [expandedEvidence, setExpandedEvidence] =
-    useState<string | null>(null);
+  const [
+    question,
+    setQuestion,
+  ] = useState("");
 
-  const status = normalizeStatus(response?.status);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const statusConfig = getStatusConfig(status);
-  const StatusIcon = statusConfig.icon;
+  const [
+    response,
+    setResponse,
+  ] =
+    useState<AnswerResponse | null>(
+      null
+    );
 
-  const evidence = response?.evidence || [];
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-  const uniqueSources = useMemo(() => {
-    const map = new Map<string, Evidence>();
+  const [
+    showEvidence,
+    setShowEvidence,
+  ] = useState(true);
 
-    for (const item of evidence) {
-      const sourceId = item.source.source_id || item.source.id;
+  const [
+    expandedEvidence,
+    setExpandedEvidence,
+  ] =
+    useState<string | null>(
+      null
+    );
 
-      if (!map.has(sourceId)) {
-        map.set(sourceId, item);
+  /*
+   * =====================================================
+   * BROAD STRUCTURED PAGINATION
+   * =====================================================
+   */
+
+  const [
+    structuredPage,
+    setStructuredPage,
+  ] = useState(1);
+
+  const structuredPageSize = 50;
+
+  /*
+   * =====================================================
+   * RESPONSE DERIVED DATA
+   * =====================================================
+   */
+
+  const status =
+    normalizeStatus(
+      response?.status
+    );
+
+  const statusConfig =
+    getStatusConfig(status);
+
+  const StatusIcon =
+    statusConfig.icon;
+
+  const evidence =
+    response?.evidence || [];
+
+  /*
+   * Broad structured result
+   */
+
+  const isBroadStructuredResult =
+    response?.model ===
+      "structured-record-query" &&
+    Array.isArray(
+      response?.records
+    );
+
+  /*
+   * IMPORTANT:
+   * structuredRecords MUST be declared
+   * before anything uses it.
+   */
+
+  const structuredRecords =
+    isBroadStructuredResult
+      ? response?.records || []
+      : [];
+
+  const currentStructuredPage =
+    response?.page ??
+    structuredPage;
+
+  const currentStructuredPageSize =
+    response?.pageSize ??
+    structuredPageSize;
+
+  const totalStructuredRecords =
+    response?.totalRecords ??
+    structuredRecords.length;
+
+  const totalStructuredPages =
+    response?.totalPages ??
+    Math.max(
+      1,
+      Math.ceil(
+        totalStructuredRecords /
+          currentStructuredPageSize
+      )
+    );
+
+  /*
+   * Get columns from the first record.
+   */
+
+  const structuredColumns =
+    structuredRecords.length > 0
+      ? getStructuredEntries(
+          structuredRecords[0]
+        ).map(
+          ([key]) => key
+        )
+      : [];
+
+  /*
+   * =====================================================
+   * UNIQUE SOURCES
+   * =====================================================
+   */
+
+  const uniqueSources =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          Evidence
+        >();
+
+      for (
+        const item of evidence
+      ) {
+        const sourceId =
+          item.source
+            .source_id ||
+          item.source.id;
+
+        if (
+          !map.has(sourceId)
+        ) {
+          map.set(
+            sourceId,
+            item
+          );
+        }
       }
-    }
 
-    return Array.from(map.values());
-  }, [evidence]);
+      return Array.from(
+        map.values()
+      );
+    }, [evidence]);
+
+  /*
+   * =====================================================
+   * ASK QUESTION
+   * =====================================================
+   */
 
   async function askQuestion(
-    submittedQuestion?: string
+    submittedQuestion?: string,
+    requestedPage = 1
   ) {
     const query = (
-      submittedQuestion ?? question
+      submittedQuestion ??
+      question
     ).trim();
 
     if (!query) {
-      setError("Please enter a question.");
+      setError(
+        "Please enter a question."
+      );
       return;
     }
 
     setQuestion(query);
     setLoading(true);
     setError("");
-    setResponse(null);
-    setExpandedEvidence(null);
+
+    /*
+     * New question starts from page 1.
+     */
+    if (
+      requestedPage === 1
+    ) {
+      setResponse(null);
+      setExpandedEvidence(null);
+      setStructuredPage(1);
+    }
 
     try {
-      const result = await fetch(
-        "/api/knowledge/answer-universal",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            question: query,
-            limit: 10,
-          }),
-        }
-      );
+      const result =
+        await fetch(
+          "/api/knowledge/answer-universal",
+          {
+            method: "POST",
 
-      const data = await result.json();
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-      if (!result.ok || !data.success) {
+            body: JSON.stringify({
+              question: query,
+
+              /*
+               * Normal semantic/exact
+               * retrieval limit.
+               */
+              limit: 10,
+
+              /*
+               * Broad structured
+               * pagination.
+               */
+              page:
+                requestedPage,
+
+              pageSize:
+                structuredPageSize,
+            }),
+          }
+        );
+
+      const data =
+        await result.json();
+
+      if (
+        !result.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.error ||
             "The knowledge assistant could not answer the question."
@@ -316,8 +747,28 @@ export default function AssistantPage() {
       }
 
       setResponse(data);
+
+      /*
+       * Update page only for
+       * broad structured results.
+       */
+      if (
+        data.model ===
+          "structured-record-query" ||
+        Array.isArray(
+          data.records
+        )
+      ) {
+        setStructuredPage(
+          data.page ??
+            requestedPage
+        );
+      }
     } catch (err) {
-      console.error("Assistant error:", err);
+      console.error(
+        "Assistant error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -329,18 +780,71 @@ export default function AssistantPage() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  /*
+   * =====================================================
+   * STRUCTURED PAGINATION
+   * =====================================================
+   */
+
+  async function goToStructuredPage(
+    page: number
+  ) {
+    if (
+      !isBroadStructuredResult
+    ) {
+      return;
+    }
+
+    if (
+      page < 1 ||
+      page >
+        totalStructuredPages
+    ) {
+      return;
+    }
+
+    await askQuestion(
+      question,
+      page
+    );
+  }
+
+  /*
+   * =====================================================
+   * FORM SUBMIT
+   * =====================================================
+   */
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
+
     await askQuestion();
   }
 
-  function handleExample(questionText: string) {
-    askQuestion(questionText);
+  function handleExample(
+    questionText: string
+  ) {
+    askQuestion(
+      questionText
+    );
   }
+
+  
+
+  /*
+   * =====================================================
+   * RENDER
+   * =====================================================
+   */
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
       <div className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex items-start gap-4">
@@ -354,20 +858,30 @@ export default function AssistantPage() {
               </h1>
 
               <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                Ask questions about your organization&apos;s
-                knowledge and receive answers backed by evidence.
+                Ask questions about your
+                organization&apos;s knowledge
+                and receive answers backed by
+                evidence.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main */}
+      {/* =================================================
+          MAIN
+      ================================================= */}
+
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Question panel */}
+
+          {/* =================================================
+              QUESTION PANEL
+          ================================================= */}
+
           <div className="lg:col-span-1">
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
               <div className="border-b border-slate-200 p-5">
                 <div className="flex items-center gap-2">
                   <HiOutlineSearch className="h-5 w-5 text-blue-600" />
@@ -378,13 +892,16 @@ export default function AssistantPage() {
                 </div>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  The assistant searches your organization&apos;s
-                  processed knowledge.
+                  The assistant searches your
+                  organization&apos;s processed
+                  knowledge.
                 </p>
               </div>
 
               <form
-                onSubmit={handleSubmit}
+                onSubmit={
+                  handleSubmit
+                }
                 className="p-5"
               >
                 <label
@@ -397,8 +914,12 @@ export default function AssistantPage() {
                 <textarea
                   id="question"
                   value={question}
-                  onChange={(event) =>
-                    setQuestion(event.target.value)
+                  onChange={(
+                    event
+                  ) =>
+                    setQuestion(
+                      event.target.value
+                    )
                   }
                   placeholder="e.g. What is the account number of Josephine Osae?"
                   rows={7}
@@ -408,7 +929,10 @@ export default function AssistantPage() {
 
                 <button
                   type="submit"
-                  disabled={loading || !question.trim()}
+                  disabled={
+                    loading ||
+                    !question.trim()
+                  }
                   className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? (
@@ -426,6 +950,7 @@ export default function AssistantPage() {
               </form>
 
               {/* Examples */}
+
               <div className="border-t border-slate-200 p-5">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   Example questions
@@ -435,11 +960,17 @@ export default function AssistantPage() {
                   {EXAMPLE_QUESTIONS.map(
                     (example) => (
                       <button
-                        key={example}
+                        key={
+                          example
+                        }
                         type="button"
-                        disabled={loading}
+                        disabled={
+                          loading
+                        }
                         onClick={() =>
-                          handleExample(example)
+                          handleExample(
+                            example
+                          )
                         }
                         className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -452,6 +983,7 @@ export default function AssistantPage() {
             </div>
 
             {/* Architecture note */}
+
             <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex gap-3">
                 <HiOutlineSparkles className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
@@ -462,8 +994,9 @@ export default function AssistantPage() {
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-blue-700">
-                    OrgBrain only presents organizational
-                    answers when sufficient organizational
+                    OrgBrain only presents
+                    organizational answers when
+                    sufficient organizational
                     evidence has been found.
                   </p>
                 </div>
@@ -471,27 +1004,38 @@ export default function AssistantPage() {
             </div>
           </div>
 
-          {/* Answer panel */}
+          {/* =================================================
+              ANSWER PANEL
+          ================================================= */}
+
           <div className="lg:col-span-2">
-            {!response && !loading && !error && (
-              <div className="flex min-h-[500px] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white">
-                <div className="max-w-md px-6 text-center">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                    <HiOutlineSparkles className="h-8 w-8" />
+
+            {/* Empty state */}
+
+            {!response &&
+              !loading &&
+              !error && (
+                <div className="flex min-h-[500px] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white">
+                  <div className="max-w-md px-6 text-center">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                      <HiOutlineSparkles className="h-8 w-8" />
+                    </div>
+
+                    <h2 className="mt-5 text-lg font-semibold text-slate-900">
+                      Ask OrgBrain a question
+                    </h2>
+
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      Your answer will be generated
+                      from the organization&apos;s
+                      indexed knowledge and accompanied
+                      by source evidence.
+                    </p>
                   </div>
-
-                  <h2 className="mt-5 text-lg font-semibold text-slate-900">
-                    Ask OrgBrain a question
-                  </h2>
-
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Your answer will be generated from the
-                    organization&apos;s indexed knowledge and
-                    accompanied by source evidence.
-                  </p>
                 </div>
-              </div>
-            )}
+              )}
+
+            {/* Loading */}
 
             {loading && (
               <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -505,422 +1049,824 @@ export default function AssistantPage() {
                   </h2>
 
                   <p className="mt-2 max-w-md text-sm text-slate-500">
-                    OrgBrain is retrieving relevant knowledge,
-                    checking the evidence, and preparing the
-                    answer.
+                    OrgBrain is retrieving relevant
+                    knowledge, checking the evidence,
+                    and preparing the answer.
                   </p>
                 </div>
               </div>
             )}
 
-            {error && !loading && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
-                <div className="flex gap-4">
-                  <HiOutlineExclamationCircle className="h-6 w-6 shrink-0 text-red-600" />
+            {/* Error */}
 
-                  <div>
-                    <h2 className="font-semibold text-red-900">
-                      Unable to answer
-                    </h2>
+            {error &&
+              !loading && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
+                  <div className="flex gap-4">
+                    <HiOutlineExclamationCircle className="h-6 w-6 shrink-0 text-red-600" />
 
-                    <p className="mt-1 text-sm leading-6 text-red-700">
-                      {error}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+                    <div>
+                      <h2 className="font-semibold text-red-900">
+                        Unable to answer
+                      </h2>
 
-            {response && !loading && (
-              <div className="space-y-5">
-                {/* Answer */}
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          Answer
-                        </p>
-
-                        <p className="mt-1 text-sm text-slate-500">
-                          {evidence.length > 0
-                            ? `${evidence.length} verified evidence item${
-                                evidence.length === 1
-                                  ? ""
-                                  : "s"
-                              }`
-                            : "No supporting evidence found"}
-                        </p>
-                      </div>
-
-                      <div
-                        className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${statusConfig.classes}`}
-                      >
-                        <StatusIcon className="h-4 w-4" />
-                        {statusConfig.label}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-5 sm:p-6">
-                    <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800">
-                      {response.answer}
+                      <p className="mt-1 text-sm leading-6 text-red-700">
+                        {error}
+                      </p>
                     </div>
                   </div>
                 </div>
+              )}
 
-                {/* Verification summary */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Status
-                    </p>
+            {/* =================================================
+                RESPONSE
+            ================================================= */}
 
-                    <div className="mt-2 flex items-center gap-2">
-                      <StatusIcon className="h-5 w-5 text-slate-600" />
+            {response &&
+              !loading && (
+                <div className="space-y-5">
 
-                      <span className="font-semibold capitalize text-slate-900">
-                        {status}
-                      </span>
-                    </div>
-                  </div>
+                  {/* =================================================
+                      ANSWER
+                  ================================================= */}
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Confidence
-                    </p>
-
-                    <p className="mt-2 font-semibold text-slate-900">
-                      {formatConfidence(
-                        response.confidence || 0
-                      )}
-                    </p>
-
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {getConfidenceLabel(
-                        response.confidence || 0
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Evidence
-                    </p>
-
-                    <p className="mt-2 font-semibold text-slate-900">
-                      {evidence.length}
-                    </p>
-
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {uniqueSources.length} source
-                      {uniqueSources.length === 1
-                        ? ""
-                        : "s"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Reason */}
-                {response.reason && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-5">
-                    <div className="flex gap-3">
-                      <HiOutlineQuestionMarkCircle className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
-
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          Verification note
-                        </h3>
-
-                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                          {response.reason}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Evidence */}
-                {evidence.length > 0 && (
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowEvidence(
-                          (current) => !current
-                        )
-                      }
-                      className="flex w-full items-center justify-between border-b border-slate-200 px-5 py-4 text-left transition hover:bg-slate-50 sm:px-6"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                          <HiOutlineDocumentText className="h-5 w-5" />
-                        </div>
+                    <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
 
                         <div>
-                          <h2 className="font-semibold text-slate-900">
-                            Evidence & Sources
-                          </h2>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                            Answer
+                          </p>
 
-                          <p className="text-xs text-slate-500">
-                            Information used to support the answer
+                          <p className="mt-1 text-sm text-slate-500">
+                            {isBroadStructuredResult
+                              ? `${totalStructuredRecords} structured records`
+                              : evidence.length >
+                                0
+                                ? `${evidence.length} verified evidence item${
+                                    evidence.length ===
+                                    1
+                                      ? ""
+                                      : "s"
+                                  }`
+                                : "No supporting evidence found"}
+                          </p>
+                        </div>
+
+                        <div
+                          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${statusConfig.classes}`}
+                        >
+                          <StatusIcon className="h-4 w-4" />
+
+                          {statusConfig.label}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-5 sm:p-6">
+                      <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800">
+                        {response.answer}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* =================================================
+                      SUMMARY
+                  ================================================= */}
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+                    {/* Status */}
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Status
+                      </p>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <StatusIcon className="h-5 w-5 text-slate-600" />
+
+                        <span className="font-semibold capitalize text-slate-900">
+                          {status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Confidence */}
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Confidence
+                      </p>
+
+                      <p className="mt-2 font-semibold text-slate-900">
+                        {formatConfidence(
+                          response.confidence ||
+                            0
+                        )}
+                      </p>
+
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {getConfidenceLabel(
+                          response.confidence ||
+                            0
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Records / Evidence */}
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        {isBroadStructuredResult
+                          ? "Records"
+                          : "Evidence"}
+                      </p>
+
+                      {isBroadStructuredResult ? (
+                        <>
+                          <p className="mt-2 font-semibold text-slate-900">
+                            {totalStructuredRecords}
+                          </p>
+
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            structured records
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-2 font-semibold text-slate-900">
+                            {evidence.length}
+                          </p>
+
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {uniqueSources.length}{" "}
+                            source
+                            {uniqueSources.length ===
+                            1
+                              ? ""
+                              : "s"}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* =================================================
+                      REASON
+                  ================================================= */}
+
+                  {response.reason && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <div className="flex gap-3">
+                        <HiOutlineQuestionMarkCircle className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-900">
+                            Verification note
+                          </h3>
+
+                          <p className="mt-1 text-sm leading-6 text-slate-600">
+                            {response.reason}
                           </p>
                         </div>
                       </div>
+                    </div>
+                  )}
 
-                      <HiOutlineChevronDown
-                        className={`h-5 w-5 text-slate-400 transition-transform ${
-                          showEvidence
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
+                  {/* =================================================
+                      BROAD STRUCTURED RECORDS
+                  ================================================= */}
 
-                    {showEvidence && (
-                      <div className="divide-y divide-slate-100">
-                        {evidence.map(
-                          (item, index) => {
-                            const source = item.source;
-                            const structured =
-                              getStructuredEntries(
-                                source.structured_data
-                              );
+                  {isBroadStructuredResult &&
+                    structuredRecords.length >
+                      0 && (
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
-                            const ContentIcon =
-                              getContentTypeIcon(
-                                source.content_type
-                              );
+                        {/* Table header */}
 
-                            const sourceId =
-                              source.source_id ||
-                              source.id;
+                        <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
 
-                            const location =
-                              getSourceLocation(item);
-
-                            const similarity =
-                              source.similarity ?? 0;
-
-                            const percentage =
-                              similarity <= 1
-                                ? similarity * 100
-                                : similarity;
-
-                            const isExpanded =
-                              expandedEvidence ===
-                              source.id;
-
-                            return (
-                              <div
-                                key={`${source.id}-${index}`}
-                                className="p-5 sm:p-6"
-                              >
-                                <div className="flex items-start gap-3">
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                                    <ContentIcon className="h-5 w-5" />
-                                  </div>
-
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                      <div className="min-w-0">
-                                        <h3 className="truncate text-sm font-semibold text-slate-900">
-                                          {source.filename ||
-                                            source.title ||
-                                            "Organizational source"}
-                                        </h3>
-
-                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                          <span>
-                                            {getSourceTypeLabel(
-                                              source.source_type
-                                            )}
-                                          </span>
-
-                                          {location && (
-                                            <>
-                                              <span>
-                                                •
-                                              </span>
-
-                                              <span>
-                                                {location}
-                                              </span>
-                                            </>
-                                          )}
-
-                                          {source.section && (
-                                            <>
-                                              <span>
-                                                •
-                                              </span>
-
-                                              <span>
-                                                {source.section}
-                                              </span>
-                                            </>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <div className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                                        {percentage.toFixed(
-                                          0
-                                        )}
-                                        % match
-                                      </div>
-                                    </div>
-
-                                    {/* Content */}
-                                    {source.content && (
-                                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                        <p
-                                          className={`whitespace-pre-wrap text-sm leading-6 text-slate-700 ${
-                                            !isExpanded
-                                              ? "line-clamp-5"
-                                              : ""
-                                          }`}
-                                        >
-                                          {source.content}
-                                        </p>
-
-                                        {source.content.length >
-                                          500 && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setExpandedEvidence(
-                                                isExpanded
-                                                  ? null
-                                                  : source.id
-                                              )
-                                            }
-                                            className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                          >
-                                            {isExpanded
-                                              ? "Show less"
-                                              : "Show more"}
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {/* Structured data */}
-                                    {structured.length >
-                                      0 && (
-                                      <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-                                        <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Structured data
-                                          </p>
-                                        </div>
-
-                                        <div className="divide-y divide-slate-100">
-                                          {structured.map(
-                                            ([key, value]) => (
-                                              <div
-                                                key={key}
-                                                className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4"
-                                              >
-                                                <div className="text-xs font-medium text-slate-500">
-                                                  {FIELD_LABELS[
-                                                    key
-                                                  ] ||
-                                                    key.replace(
-                                                      /_/g,
-                                                      " "
-                                                    )}
-                                                </div>
-
-                                                <div className="break-words text-sm font-medium text-slate-800 sm:col-span-2">
-                                                  {formatValue(
-                                                    value
-                                                  )}
-                                                </div>
-                                              </div>
-                                            )
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Source actions */}
-                                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                                      <a
-                                        href={`/api/knowledge/sources/${sourceId}/open`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                                      >
-                                        <HiOutlineExternalLink className="h-4 w-4" />
-                                        Open Source
-                                      </a>
-
-                                      <a
-                                        href={`/api/knowledge/sources/${sourceId}/download`}
-                                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                                      >
-                                        <HiOutlineDownload className="h-4 w-4" />
-                                        Download
-                                      </a>
-                                    </div>
-                                  </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                  <HiOutlineTable className="h-5 w-5" />
                                 </div>
+
+                                <h2 className="font-semibold text-slate-900">
+                                  Structured Records
+                                </h2>
                               </div>
-                            );
+
+                              <p className="mt-1 text-xs text-slate-500">
+                                Showing{" "}
+                                {
+                                  structuredRecords.length
+                                }{" "}
+                                of{" "}
+                                {
+                                  totalStructuredRecords
+                                }{" "}
+                                organizational
+                                records
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() =>
+      exportStructuredRecords(
+        structuredRecords,
+        `orgbrain-page-${currentStructuredPage}`
+      )
+    }
+    disabled={
+      structuredRecords.length === 0
+    }
+    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    <HiOutlineDownload className="h-4 w-4" />
+    Export Page
+  </button>
+
+<button
+  type="button"
+  onClick={() =>
+    exportAllStructuredRecords(
+      question.trim()
+    )
+  }
+  disabled={
+    structuredRecords.length === 0
+  }
+  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  <HiOutlineDownload className="h-4 w-4" />
+  Export All
+</button>
+
+
+  <div className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+    Page{" "}
+    {currentStructuredPage}{" "}
+    of{" "}
+    {totalStructuredPages}
+  </div>
+</div>
+                          </div>
+                        </div>
+
+                        {/* Table */}
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200">
+
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th
+                                  scope="col"
+                                  className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                                >
+                                  #
+                                </th>
+
+                                {structuredColumns.map(
+                                  (key) => (
+                                    <th
+                                      key={
+                                        key
+                                      }
+                                      scope="col"
+                                      className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                                    >
+                                      {FIELD_LABELS[
+                                        key
+                                      ] ||
+                                        key.replace(
+                                          /_/g,
+                                          " "
+                                        )}
+                                    </th>
+                                  )
+                                )}
+                              </tr>
+                            </thead>
+
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {structuredRecords.map(
+                                (
+                                  record,
+                                  index
+                                ) => {
+                                  /*
+                                   * Prefer the actual database
+                                   * row number where available.
+                                   */
+                                  const databaseRow =
+                                    Number(
+                                      record.row_number
+                                    );
+
+                                  const displayNumber =
+                                    Number.isFinite(
+                                      databaseRow
+                                    ) &&
+                                    databaseRow >
+                                      0
+                                      ? databaseRow
+                                      : (
+                                          (
+                                            currentStructuredPage -
+                                              1
+                                          ) *
+                                            currentStructuredPageSize
+                                        ) +
+                                        index +
+                                        1;
+
+                                  const accountNumber =
+                                    formatValue(
+                                      record.account_number
+                                    );
+
+                                  return (
+                                    <tr
+                                      key={`${accountNumber}-${displayNumber}-${index}`}
+                                      className="transition hover:bg-slate-50"
+                                    >
+                                      <td className="whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-400">
+                                        {
+                                          displayNumber
+                                        }
+                                      </td>
+
+                                      {structuredColumns.map(
+                                        (
+                                          key
+                                        ) => (
+                                          <td
+                                            key={
+                                              key
+                                            }
+                                            className="whitespace-nowrap px-4 py-3 text-sm text-slate-700"
+                                          >
+                                            {formatValue(
+                                              record[
+                                                key
+                                              ]
+                                            )}
+                                          </td>
+                                        )
+                                      )}
+                                    </tr>
+                                  );
+                                }
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* =================================================
+                            PAGINATION
+                        ================================================= */}
+
+                        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                            {/* Range */}
+
+                            <div className="text-xs text-slate-500">
+                              {totalStructuredRecords >
+                              0
+                                ? `Records ${
+                                    (
+                                      (
+                                        currentStructuredPage -
+                                        1
+                                      ) *
+                                        currentStructuredPageSize
+                                    ) +
+                                    1
+                                  }–${Math.min(
+                                    currentStructuredPage *
+                                      currentStructuredPageSize,
+                                    totalStructuredRecords
+                                  )} of ${totalStructuredRecords}`
+                                : "No records"}
+                            </div>
+
+                            {/* Controls */}
+
+                            <div className="flex items-center gap-2">
+
+                              <button
+                                type="button"
+                                disabled={
+                                  loading ||
+                                  currentStructuredPage <=
+                                    1
+                                }
+                                onClick={() =>
+                                  goToStructuredPage(
+                                    currentStructuredPage -
+                                      1
+                                  )
+                                }
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Previous
+                              </button>
+
+                              <span className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm">
+                                Page{" "}
+                                {
+                                  currentStructuredPage
+                                }{" "}
+                                of{" "}
+                                {
+                                  totalStructuredPages
+                                }
+                              </span>
+
+                              <button
+                                type="button"
+                                disabled={
+                                  loading ||
+                                  currentStructuredPage >=
+                                    totalStructuredPages
+                                }
+                                onClick={() =>
+                                  goToStructuredPage(
+                                    currentStructuredPage +
+                                      1
+                                  )
+                                }
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                Next
+                              </button>
+
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* =================================================
+                      NORMAL EVIDENCE
+                  ================================================= */}
+
+                  {!isBroadStructuredResult &&
+                    evidence.length >
+                      0 && (
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowEvidence(
+                              (
+                                current
+                              ) =>
+                                !current
+                            )
                           }
+                          className="flex w-full items-center justify-between border-b border-slate-200 px-5 py-4 text-left transition hover:bg-slate-50 sm:px-6"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                              <HiOutlineDocumentText className="h-5 w-5" />
+                            </div>
+
+                            <div>
+                              <h2 className="font-semibold text-slate-900">
+                                Evidence &
+                                Sources
+                              </h2>
+
+                              <p className="text-xs text-slate-500">
+                                Information used
+                                to support the
+                                answer
+                              </p>
+                            </div>
+                          </div>
+
+                          <HiOutlineChevronDown
+                            className={`h-5 w-5 text-slate-400 transition-transform ${
+                              showEvidence
+                                ? "rotate-180"
+                                : ""
+                            }`}
+                          />
+                        </button>
+
+                        {showEvidence && (
+                          <div className="divide-y divide-slate-100">
+                            {evidence.map(
+                              (
+                                item,
+                                index
+                              ) => {
+                                const source =
+                                  item.source;
+
+                                const structured =
+                                  getStructuredEntries(
+                                    source.structured_data
+                                  );
+
+                                const ContentIcon =
+                                  getContentTypeIcon(
+                                    source.content_type
+                                  );
+
+                                const sourceId =
+                                  source.source_id ||
+                                  source.id;
+
+                                const location =
+                                  getSourceLocation(
+                                    item
+                                  );
+
+                                const similarity =
+                                  source.similarity ??
+                                  0;
+
+                                const percentage =
+                                  similarity <=
+                                  1
+                                    ? similarity *
+                                      100
+                                    : similarity;
+
+                                const isExpanded =
+                                  expandedEvidence ===
+                                  source.id;
+
+                                return (
+                                  <div
+                                    key={`${source.id}-${index}`}
+                                    className="p-5 sm:p-6"
+                                  >
+                                    <div className="flex items-start gap-3">
+
+                                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                                        <ContentIcon className="h-5 w-5" />
+                                      </div>
+
+                                      <div className="min-w-0 flex-1">
+
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+
+                                          <div className="min-w-0">
+
+                                            <h3 className="truncate text-sm font-semibold text-slate-900">
+                                              {source.filename ||
+                                                source.title ||
+                                                "Organizational source"}
+                                            </h3>
+
+                                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+
+                                              <span>
+                                                {getSourceTypeLabel(
+                                                  source.source_type
+                                                )}
+                                              </span>
+
+                                              {location && (
+                                                <>
+                                                  <span>
+                                                    •
+                                                  </span>
+
+                                                  <span>
+                                                    {
+                                                      location
+                                                    }
+                                                  </span>
+                                                </>
+                                              )}
+
+                                              {source.section && (
+                                                <>
+                                                  <span>
+                                                    •
+                                                  </span>
+
+                                                  <span>
+                                                    {
+                                                      source.section
+                                                    }
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                            {percentage.toFixed(
+                                              0
+                                            )}
+                                            % match
+                                          </div>
+                                        </div>
+
+                                        {/* Content */}
+
+                                        {source.content && (
+                                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+
+                                            <p
+                                              className={`whitespace-pre-wrap text-sm leading-6 text-slate-700 ${
+                                                !isExpanded
+                                                  ? "line-clamp-5"
+                                                  : ""
+                                              }`}
+                                            >
+                                              {
+                                                source.content
+                                              }
+                                            </p>
+
+                                            {source.content
+                                              .length >
+                                              500 && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setExpandedEvidence(
+                                                    isExpanded
+                                                      ? null
+                                                      : source.id
+                                                  )
+                                                }
+                                                className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                              >
+                                                {isExpanded
+                                                  ? "Show less"
+                                                  : "Show more"}
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Structured data */}
+
+                                        {structured.length >
+                                          0 && (
+                                          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+
+                                            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                                Structured
+                                                data
+                                              </p>
+                                            </div>
+
+                                            <div className="divide-y divide-slate-100">
+
+                                              {structured.map(
+                                                ([
+                                                  key,
+                                                  value,
+                                                ]) => (
+                                                  <div
+                                                    key={
+                                                      key
+                                                    }
+                                                    className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4"
+                                                  >
+                                                    <div className="text-xs font-medium text-slate-500">
+                                                      {FIELD_LABELS[
+                                                        key
+                                                      ] ||
+                                                        key.replace(
+                                                          /_/g,
+                                                          " "
+                                                        )}
+                                                    </div>
+
+                                                    <div className="break-words text-sm font-medium text-slate-800 sm:col-span-2">
+                                                      {formatValue(
+                                                        value
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                )
+                                              )}
+
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Source actions */}
+
+                                        <div className="mt-4 flex flex-wrap items-center gap-2">
+
+                                          <a
+                                            href={`/api/knowledge/sources/${sourceId}/open`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                          >
+                                            <HiOutlineExternalLink className="h-4 w-4" />
+                                            Open Source
+                                          </a>
+
+                                          <a
+                                            href={`/api/knowledge/sources/${sourceId}/download`}
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                          >
+                                            <HiOutlineDownload className="h-4 w-4" />
+                                            Download
+                                          </a>
+
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
-                  </div>
-                )}
 
-                {/* No evidence */}
-                {evidence.length === 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-6">
-                    <div className="flex gap-4">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-                        <HiOutlineQuestionMarkCircle className="h-5 w-5 text-slate-500" />
+                  {/* =================================================
+                      NO EVIDENCE
+                  ================================================= */}
+
+                  {evidence.length ===
+                    0 &&
+                    !isBroadStructuredResult && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                        <div className="flex gap-4">
+
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100">
+                            <HiOutlineQuestionMarkCircle className="h-5 w-5 text-slate-500" />
+                          </div>
+
+                          <div>
+                            <h3 className="font-semibold text-slate-900">
+                              No verified evidence
+                            </h3>
+
+                            <p className="mt-1 text-sm leading-6 text-slate-500">
+                              OrgBrain could not find
+                              sufficient organizational
+                              evidence to support an
+                              answer to this question.
+                              No unsupported
+                              organizational information
+                              has been presented as fact.
+                            </p>
+                          </div>
+
+                        </div>
                       </div>
+                    )}
 
-                      <div>
-                        <h3 className="font-semibold text-slate-900">
-                          No verified evidence
-                        </h3>
+                  {/* =================================================
+                      FOOTER METADATA
+                  ================================================= */}
 
-                        <p className="mt-1 text-sm leading-6 text-slate-500">
-                          OrgBrain could not find sufficient
-                          organizational evidence to support an
-                          answer to this question. No unsupported
-                          organizational information has been
-                          presented as fact.
-                        </p>
-                      </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-slate-400">
+
+                    <div className="flex items-center gap-2">
+                      <HiOutlinePaperClip className="h-4 w-4" />
+
+                      <span>
+                        {isBroadStructuredResult
+                          ? `${totalStructuredRecords} structured records`
+                          : `${uniqueSources.length} source${
+                              uniqueSources.length ===
+                              1
+                                ? ""
+                                : "s"
+                            } used`}
+                      </span>
                     </div>
+
+                    {response.model && (
+                      <span>
+                        Model:{" "}
+                        {
+                          response.model
+                        }
+                      </span>
+                    )}
+
                   </div>
-                )}
-
-                {/* Footer metadata */}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <HiOutlinePaperClip className="h-4 w-4" />
-
-                    <span>
-                      {uniqueSources.length} source
-                      {uniqueSources.length === 1
-                        ? ""
-                        : "s"} used
-                    </span>
-                  </div>
-
-                  {response.model && (
-                    <span>
-                      Model: {response.model}
-                    </span>
-                  )}
                 </div>
-              </div>
-            )}
+              )}
           </div>
         </div>
       </main>
